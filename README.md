@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 4 de 11: el agente razona con un modelo de lenguaje local.
+Etapa 5 de 11: detección de signos de alarma y decisión de escalamiento.
 
 ## Requisitos
 
@@ -81,11 +81,27 @@ paciente**. No es una mejora de precisión: los protocolos postoperatorios compa
 vocabulario casi por completo, así que sin ese filtro una pregunta sobre una cirugía se
 responde citando otra.
 
+## Seguridad clínica
+
+La decisión de escalar la toman **dos capas independientes** y se queda la más
+conservadora: reglas deterministas sobre léxico clínico colombiano, y una valoración del
+modelo con el protocolo recuperado.
+
+Lo importante es la consecuencia: **si el modelo se cae a mitad de turno, las reglas ya
+evaluaron y la alerta sale igual**. Escalar no depende de que haya un modelo disponible.
+
+El léxico (`server/agent/lexicon.py`) son frases planas, no expresiones regulares: añadir
+una forma nueva de decir un síntoma no exige tocar la lógica.
+
 ## Pruebas
 
 ```bash
 uv run python -m evals.conocimiento_vivo             # 10/10 · ingesta, versionado y olvido
 uv run python -m evals.pertinencia_procedimiento     # 13/13 · la recuperación no cruza cirugías
+uv run python -m evals.alarmas_base                  # 10/10 · signos de alarma, casos base
+uv run python -m evals.alarmas_adversariales         # 16/16 · casos diseñados para romper las reglas
+uv run python -m evals.lexico_colombiano             # 85/85 · léxico clínico y sus trampas
+uv run python -m evals.decision_seguridad            # 16/16 · la decisión sobrevive al modelo caído
 ```
 
 No invocan ningún modelo de lenguaje: corren en segundos y siempre dan lo mismo.

@@ -218,3 +218,82 @@ tarjeta —que es el que hay que reportar—, no para degradar a quien la tenga.
 **Todavía no está bien, y es esperable.** El modelo tutea y `citation_ids` sale vacío
 aunque use el contexto. Las reglas de conversación son la etapa 6 y la derivación de citas
 la etapa 7; esta etapa entrega el cliente y las garantías de formato.
+
+---
+
+## Etapa 5 · Seguridad clínica
+
+### La decisión no puede depender del modelo
+
+Dos capas independientes, y la decisión es **el máximo de las dos**:
+
+- **Determinista** (`safety_rules.py` + `lexicon.py`): léxico clínico colombiano con
+  manejo de negación. No invoca al modelo.
+- **Juez** (`seguridad.assess_risk`): el modelo clasifica el riesgo con los fragmentos del
+  protocolo recuperados.
+
+La consecuencia práctica es la que importa: **si el modelo se cae a mitad de turno, la
+capa determinista ya evaluó y la alerta sale igual**. Escalar no queda condicionado a que
+haya un runtime disponible. Está probado explícitamente en `evals/decision_seguridad.py`:
+sin juez, las reglas deciden solas y la acción sigue siendo escalar.
+
+Y queda constancia de **qué capa lo decidió** (`rules`, `llm`, `both`), porque una decisión
+clínica que no se puede explicar no sirve para auditarla después.
+
+### El léxico es datos, no código
+
+`lexicon.py` son 23 conceptos clínicos con las frases que un paciente colombiano usa de
+verdad. Está separado del motor por una razón concreta: **cada llamada real descubre dos o
+tres formas nuevas de decir lo mismo**, y ampliar la cobertura no debería exigir saber
+escribir expresiones regulares. Los términos son frases planas; el motor las compila.
+
+Un clínico puede añadir «me siento aporreado» sin tocar una línea de lógica.
+
+**Y no es conocimiento clínico**, es comprensión del habla. Qué umbral aplica y qué es un
+signo de alarma vive en los documentos; aquí solo está el puente entre «botando materia» y
+el concepto `infeccion` que el documento sí nombra. Por eso el léxico crece sin tocar el
+conocimiento y el conocimiento cambia sin tocar el léxico.
+
+### El alcance de la negación, que es donde estaba el peligro
+
+Una ventana de N caracteres antes del síntoma **no basta**, y los contraejemplos son
+clínicamente graves:
+
+| Frase | Qué pasaba |
+|---|---|
+| *«no aguanto el dolor en el pecho»* | el «no» niega el aguante, no el dolor → se perdía un `critical` |
+| *«no me baja la fiebre»* | niega la mejoría; la fiebre **persiste** |
+| *«ayer no tenía fiebre, pero hoy tengo fiebre de 40»* | la 1ª mención negada descartaba la regla entera |
+
+Se resolvió exigiendo que entre la negación y el síntoma **solo haya conectores**, y
+evaluando **todas** las ocurrencias y no la primera. Ante la duda se considera NO negado.
+
+### Tolerancia a cómo se transcribe el habla
+
+Todo lo que decide el agente sale del transcript, no del audio: un signo de alarma no puede
+perderse porque el reconocedor se comió una consonante. La compilación de términos absorbe
+lo que pasa de verdad con español colombiano por teléfono —/s/ aspirada, yeísmo, seseo, `h`
+muda, `b`/`v`—. Sin esas tolerancias, *«me sale **pu** de la herida»*, *«no puedo
+**respira**»*, *«se me abrió la **erida**»* y *«me **desmalle** anoche»* daban `none`, y dos
+de ellos eran `critical`.
+
+Se hace en el patrón y no normalizando el texto de entrada, para que los índices de la
+coincidencia sigan sirviendo al análisis de la negación.
+
+### Verificado
+
+| Arnés | Resultado |
+|---|---|
+| `evals/alarmas_base.py` | 10/10 casos base |
+| `evals/alarmas_adversariales.py` | **16/16 falsos negativos** detectados |
+| `evals/lexico_colombiano.py` | 85/85 términos y trampas |
+| `evals/decision_seguridad.py` | 16/16 de la regla de combinación |
+
+Los casos adversariales no verifican lo que las reglas ya cubren: están diseñados para
+romperlas. Cada uno nace de una hipótesis de cómo puede fallar el detector con habla real.
+
+**Un dato que se reporta y no se esconde:** los 4 casos de falso positivo siguen generando
+ruido —«mi hija tiene fiebre», «el médico me dijo que si hay pus llame»—. Son observación y
+no compuerta, a propósito: detectar de más cuesta una alerta revisable; detectar de menos
+cuesta un paciente. Distinguir un síntoma reportado de uno citado o hipotético es trabajo
+del juez, que sí entiende el contexto.
