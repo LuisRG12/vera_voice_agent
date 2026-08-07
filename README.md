@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 1 de 11: andamiaje. El servidor levanta y reporta su estado.
+Etapa 2 de 11: base de conocimiento con ingesta y olvido en caliente.
 
 ## Requisitos
 
@@ -23,18 +23,40 @@ uv sync
 uv run main.py
 ```
 
-Verificar:
+La primera ejecución descarga el modelo de embeddings; después arranca en segundos.
+
+## Conocimiento vivo
+
+Suba un documento y queda disponible para la siguiente consulta; bórrelo y deja de
+sustentar respuestas **al instante**, sin reindexar.
 
 ```bash
-curl http://localhost:8000/api/health
+curl -X POST http://localhost:8000/api/knowledge/add \
+  -H "Content-Type: application/json" \
+  -d '{"name":"protocolo.md","text":"# Cuidado de la herida\n Mantenga la incisión limpia y seca."}'
+
+curl "http://localhost:8000/api/knowledge/query?q=puedo+mojar+la+herida"
+curl http://localhost:8000/api/knowledge
+curl -X DELETE http://localhost:8000/api/knowledge/1
 ```
+
+Formatos admitidos: `.md`, `.txt`, `.pdf`, `.docx`.
+
+## Pruebas
+
+```bash
+uv run python -m evals.conocimiento_vivo    # 10/10 · ingesta, versionado y olvido
+```
+
+No invocan ningún modelo de lenguaje: corren en segundos y siempre dan lo mismo.
 
 ## Estructura
 
 ```
-server/     backend (FastAPI)
-docs/       arquitectura y bitácora de decisiones
-main.py     punto de entrada
+server/knowledge/   ingesta, troceado, embeddings, recuperación híbrida, tombstones
+server/             backend (FastAPI)
+evals/              arneses de prueba reproducibles
+docs/               arquitectura y bitácora de decisiones
 ```
 
 ## Licencia

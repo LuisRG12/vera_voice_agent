@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # --- Conocimiento ---
+    # Modelo de embeddings. Cuál conviene es la decisión D2 y se resuelve
+    # midiendo separación entre preguntas con respuesta y sin ella.
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    knowledge_db: str = "vera_knowledge.db"
+    # Umbral de "sin evidencia" (decisión D3, pendiente de calibrar contra el
+    # corpus real). Un valor provisional es honesto mientras se declare como tal.
+    min_evidence: float = 0.55
 
 
 settings = Settings()
