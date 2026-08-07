@@ -47,8 +47,22 @@ class HybridRetriever:
         self.embedder = embedder
         self.rrf_k = rrf_k
 
-    def query(self, text: str, k: int = 5) -> list[Citation]:
+    def query(self, text: str, k: int = 5, procedimiento: str | None = None) -> list[Citation]:
+        """`procedimiento` acota la búsqueda a los documentos de esa cirugía.
+
+        No es una mejora de precisión: es seguridad clínica. Los protocolos
+        postoperatorios comparten vocabulario casi por completo —la sección
+        «Signos de alarma» se repite entre cirugías— y las guías de paciente más
+        largas y coloquiales copan el top-k de cualquier pregunta, venga del
+        procedimiento que venga. Sin este filtro, «me duele la herida del seno»
+        se responde citando una guía de otra operación.
+
+        Los documentos sin procedimiento (`NULL`) pasan siempre: son los que sube
+        el evaluador por la consola, y filtrarlos rompería el conocimiento vivo.
+        """
         rows = self.store.active_chunks()
+        if procedimiento:
+            rows = [r for r in rows if r.procedure in (None, procedimiento)]
         if not rows:
             return []
         qvec = self.embedder.embed_one(text)

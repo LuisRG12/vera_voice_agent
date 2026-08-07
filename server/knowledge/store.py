@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS documents (
   sha256 TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',   -- active | deleted
   chunk_count INTEGER NOT NULL DEFAULT 0,
+  -- Procedimiento al que pertenece el documento. NULL = documento general,
+  -- válido para cualquier paciente: es lo que sube el evaluador por la consola,
+  -- y por eso NULL nunca se filtra (ver `HybridRetriever.query`).
+  procedure TEXT,
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL
 );
@@ -52,6 +56,7 @@ class ActiveChunk:
     section: str
     text: str
     embedding: np.ndarray
+    procedure: str | None = None
 
 
 @dataclass
@@ -72,7 +77,8 @@ class KnowledgeStore:
         self._db.commit()
 
     @serialized
-    def add_document(self, name: str, sha256: str, chunks, embeddings) -> int:
+    def add_document(self, name: str, sha256: str, chunks, embeddings,
+                     procedure: str | None = None) -> int:
         """chunks: list[(section, text)]; embeddings: list[np.ndarray] alineado."""
         now = time.time()
         cur = self._db.cursor()
@@ -87,9 +93,9 @@ class KnowledgeStore:
             cur.execute("UPDATE documents SET status='deleted', updated_at=? WHERE id=?",
                         (now, prev["id"]))
         cur.execute(
-            "INSERT INTO documents(name,version,sha256,status,chunk_count,created_at,updated_at) "
-            "VALUES(?,?,?,'active',?,?,?)",
-            (name, version, sha256, len(chunks), now, now),
+            "INSERT INTO documents(name,version,sha256,status,chunk_count,procedure,"
+            "created_at,updated_at) VALUES(?,?,?,'active',?,?,?,?)",
+            (name, version, sha256, len(chunks), procedure, now, now),
         )
         doc_id = cur.lastrowid
         for i, ((section, text), emb) in enumerate(zip(chunks, embeddings, strict=True)):
@@ -125,7 +131,7 @@ class KnowledgeStore:
     def active_chunks(self) -> list[ActiveChunk]:
         rows = self._db.execute(
             "SELECT c.id AS chunk_id, c.doc_id, d.name AS doc_name, d.version AS doc_version, "
-            "c.section, c.text, c.embedding "
+            "d.procedure, c.section, c.text, c.embedding "
             "FROM chunks c JOIN documents d ON d.id = c.doc_id "
             "WHERE d.status='active' ORDER BY c.doc_id, c.ordinal"
         ).fetchall()
@@ -134,9 +140,23 @@ class KnowledgeStore:
                 r["chunk_id"], r["doc_id"], r["doc_name"], r["doc_version"],
                 r["section"] or "", r["text"],
                 np.frombuffer(r["embedding"], dtype=np.float32),
+                r["procedure"],
             )
             for r in rows
         ]
+
+    @serialized
+    def procedures_present(self) -> set[str]:
+        """Procedimientos con al menos un documento activo.
+
+        Permite responder «no tengo material de su cirugía» ANTES de recuperar
+        nada, en vez de devolver lo más parecido que haya.
+        """
+        rows = self._db.execute(
+            "SELECT DISTINCT procedure FROM documents "
+            "WHERE status='active' AND procedure IS NOT NULL"
+        ).fetchall()
+        return {r["procedure"] for r in rows}
 
     @serialized
     def list_documents(self, include_deleted: bool = True) -> list[DocumentInfo]:

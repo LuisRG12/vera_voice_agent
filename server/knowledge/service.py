@@ -43,19 +43,24 @@ class KnowledgeService:
         self.min_evidence = settings.min_evidence if min_evidence is None else min_evidence
 
     # ---------- alta y baja ----------
-    def add_text(self, name: str, text: str) -> int:
+    def add_text(self, name: str, text: str, procedure: str | None = None) -> int:
         chunks = chunk_document(text)
         if not chunks:
             raise ValueError("documento vacío tras el troceado")
         embeddings = self.embedder.embed([c[1] for c in chunks])
         sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        return self.store.add_document(name, sha, chunks, embeddings)
+        return self.store.add_document(name, sha, chunks, embeddings, procedure)
 
-    def add_file(self, path: str) -> int:
-        return self.add_text(Path(path).name, parse_file(path))
+    def add_file(self, path: str, procedure: str | None = None) -> int:
+        return self.add_text(Path(path).name, parse_file(path), procedure)
 
     def add_bytes(self, name: str, data: bytes) -> int:
-        """Ingiere un archivo subido por la consola, sin tocar el disco."""
+        """Ingiere un archivo subido por la consola, sin tocar el disco.
+
+        Sin procedimiento a propósito: lo que sube el evaluador debe verlo
+        cualquier paciente. No podemos adivinar a qué cirugía pertenece su
+        documento de prueba, y equivocarnos lo dejaría invisible.
+        """
         return self.add_text(name, parse_bytes(name, data))
 
     def delete(self, doc_id: int) -> bool:
@@ -68,7 +73,11 @@ class KnowledgeService:
         return self.store.list_documents(include_deleted)
 
     # ---------- consulta ----------
-    def query(self, text: str, k: int = 5) -> dict:
+    def procedures_present(self) -> set[str]:
+        """Procedimientos con documentos activos (para la compuerta de pertinencia)."""
+        return self.store.procedures_present()
+
+    def query(self, text: str, k: int = 5, procedimiento: str | None = None) -> dict:
         """Fragmentos recuperados y si constituyen evidencia suficiente.
 
         La evidencia es híbrida a propósito: **semántica** (el mejor puntaje
@@ -79,7 +88,7 @@ class KnowledgeService:
 
         Dónde va el umbral es la decisión D3 de `docs/arquitectura.md`.
         """
-        citations: list[Citation] = self.retriever.query(text, k)
+        citations: list[Citation] = self.retriever.query(text, k, procedimiento)
         max_dense = max((c.dense for c in citations), default=0.0)
         qwords = _content_words(text)
         lexical = max((len(qwords & _content_words(c.text)) for c in citations[:3]), default=0)

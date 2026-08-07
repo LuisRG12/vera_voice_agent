@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 2 de 11: base de conocimiento con ingesta y olvido en caliente.
+Etapa 3 de 11: corpus clínico del reto y recuperación acotada al procedimiento del paciente.
 
 ## Requisitos
 
@@ -42,10 +42,30 @@ curl -X DELETE http://localhost:8000/api/knowledge/1
 
 Formatos admitidos: `.md`, `.txt`, `.pdf`, `.docx`.
 
+## El corpus clínico
+
+Los documentos del reto **no se redistribuyen aquí**: son obra de sus autores y el material
+oficial los incluye solo como referencia. Este repositorio trae el script que construye el
+índice a partir de ellos.
+
+```bash
+uv run scripts/corpus.py --ruta <repo-del-reto>/dataset/textos --revisar   # informa
+uv run scripts/corpus.py --ruta <repo-del-reto>/dataset/textos            # construye
+```
+
+La ingesta reporta lo que encuentra en vez de tragárselo: PDFs sin capa de texto,
+casi-duplicados y procedimientos que se quedan sin material propio.
+
+Cada documento queda etiquetado con su procedimiento, y **la recuperación se acota al del
+paciente**. No es una mejora de precisión: los protocolos postoperatorios comparten
+vocabulario casi por completo, así que sin ese filtro una pregunta sobre una cirugía se
+responde citando otra.
+
 ## Pruebas
 
 ```bash
-uv run python -m evals.conocimiento_vivo    # 10/10 · ingesta, versionado y olvido
+uv run python -m evals.conocimiento_vivo             # 10/10 · ingesta, versionado y olvido
+uv run python -m evals.pertinencia_procedimiento     # 13/13 · la recuperación no cruza cirugías
 ```
 
 No invocan ningún modelo de lenguaje: corren en segundos y siempre dan lo mismo.
@@ -55,6 +75,7 @@ No invocan ningún modelo de lenguaje: corren en segundos y siempre dan lo mismo
 ```
 server/knowledge/   ingesta, troceado, embeddings, recuperación híbrida, tombstones
 server/             backend (FastAPI)
+scripts/            construcción del índice del corpus
 evals/              arneses de prueba reproducibles
 docs/               arquitectura y bitácora de decisiones
 ```

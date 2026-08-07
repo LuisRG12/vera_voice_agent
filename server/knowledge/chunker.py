@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import re
+import sys
 from pathlib import Path
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
@@ -69,9 +70,28 @@ def parse_bytes(name: str, data: bytes) -> str:
         f"formato no soportado: {ext or '(sin extensión)'}. Admitidos: {', '.join(FORMATOS)}")
 
 
+def _ruta_larga(p: Path) -> Path:
+    """Ruta abrible en Windows aunque supere el límite clásico de 260 caracteres.
+
+    El corpus del reto tiene títulos de artículo como nombre de archivo, y dos de
+    ellos pasan de ese límite. El síntoma engaña: el archivo **está** en disco y
+    `glob` lo encuentra, pero `open()` responde `FileNotFoundError`. Se pierde
+    material clínico real sin que nada avise.
+
+    El prefijo `\\\\?\\` desactiva esa comprobación. Exige ruta absoluta y
+    separadores de Windows, así que se normaliza antes.
+    """
+    if not sys.platform.startswith("win"):
+        return p
+    absoluta = p.resolve()
+    if str(absoluta).startswith("\\\\?\\"):
+        return absoluta
+    return Path("\\\\?\\" + str(absoluta))
+
+
 def parse_file(path: str) -> str:
     p = Path(path)
-    return parse_bytes(p.name, p.read_bytes())
+    return parse_bytes(p.name, _ruta_larga(p).read_bytes())
 
 
 def _split_sections(text: str) -> list[tuple[str, str]]:

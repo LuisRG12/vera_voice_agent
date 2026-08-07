@@ -72,3 +72,84 @@ Y el ciclo completo por HTTP: subir → citar → borrar → dejar de citar.
 **Sigue abierto:** D2 (qué modelo de embeddings) y D3 (dónde va el umbral). El valor actual
 de `min_evidence` es provisional y está declarado como tal: se calibra en la etapa 11,
 contra el corpus real y con preguntas de respuesta conocida.
+
+---
+
+## Etapa 3 · Corpus del reto y pertinencia por procedimiento
+
+### El hallazgo que cambió el diseño
+
+La carpeta `breast_cancer/` del corpus **no contiene un solo documento de mama**. Sus 19
+archivos son de cáncer de cuello uterino: se verificó documento por documento contando
+términos, y ninguno menciona mama, mastectomía, axila ni linfedema.
+
+Mientras tanto, 8 de los 40 pacientes del dataset —**el 20 % de los casos**— están operados
+de mastectomía.
+
+Sin filtro, la pregunta *«me duele la herida del seno»* recupera material de otra cirugía:
+misma familia clínica, mismo vocabulario postoperatorio, y el coseno no distingue. Es una
+trampa de alucinación por construcción.
+
+**Dos decisiones separadas:**
+
+1. **Los documentos se etiquetan por lo que tratan, no por el nombre de su carpeta.**
+   Marcarlos como `mastectomia` habría sido construir la trampa nosotros mismos.
+2. **Compuerta de pertinencia**: un paciente ve los documentos de su cirugía y los
+   generales (`procedure IS NULL`, que son los que sube el evaluador y por eso nunca se
+   filtran). Nada más.
+
+Para los pacientes de mastectomía, el agente declarará que no tiene material de su
+procedimiento y escalará. No es una carencia: es la conducta correcta, y hay que contarla
+como decisión consciente para que no se lea como un defecto.
+
+**La compuerta no sirve solo para ese caso.** Los protocolos postoperatorios comparten
+vocabulario casi por completo —«Signos de alarma» se repite entre cirugías— y las guías de
+paciente más largas y coloquiales copan el top-k de cualquier pregunta, venga del
+procedimiento que venga. El filtro corrige la recuperación de **todos** los procedimientos.
+
+### Dos PDFs que se estaban perdiendo en silencio
+
+El material del reto declara 107 documentos; al clonarlo en Windows aparecían 105. No era
+un error de su documentación: **dos archivos de `colorectal cancer/` tienen títulos de
+artículo como nombre y superan el límite clásico de ruta de Windows.**
+
+El síntoma engaña: `git` los deja en disco y `glob` los encuentra, pero `open()` responde
+`FileNotFoundError`. Se perdía material clínico real sin que nada avisara —**38.987 y
+46.345 caracteres**—, y colorectal quedaba con 23 documentos en vez de 25.
+
+Se resolvió en el lector con el prefijo de ruta extendida, no en el script: la consola
+recibe documentos del evaluador que no hemos visto, y un nombre largo es perfectamente
+normal.
+
+### Lo que el corpus real trae, y que la ingesta reporta a la vista
+
+```
+107 PDFs revisados · 105 ingeridos
+  Apendicectomía 23 · Colecistectomía 17 · Colectomía 25 · Reemplazo articular 21
+  Mastectomía     0  <-- SIN CORPUS PROPIO
+  (cancer_cuello_uterino) 19  <-- venían en breast_cancer/
+  1 sin capa de texto (requiere OCR) · 1 casi-duplicado (Jaccard 0.96)
+```
+
+- **Un PDF escaneado.** El lector no falla con un escaneo: devuelve cadena vacía. Indexarlo
+  metería un documento fantasma que nunca se puede citar y que infla el conteo de la
+  consola. Se reporta como no procesable.
+- **Un PDF cifrado.** Requiere `cryptography`, que se añadió: importa más allá de ese
+  archivo, porque un PDF protegido es un formato normal y el evaluador puede subir uno.
+- **Un casi-duplicado.** No hay duplicados exactos por hash, pero sí el mismo artículo con
+  dos nombres. Con huella exacta no se ve; con solapamiento de n-gramas sí (0.96, frente a
+  0.2 del siguiente par más parecido). Importa porque compiten entre ellos en el top-k.
+
+### Qué se entrega y qué no
+
+**Los PDFs no se redistribuyen en este repositorio.** Son obra de sus autores y el material
+del reto los incluye solo como referencia. Se entrega el índice ya construido —que es lo
+que hace falta para levantar la solución— y el script que lo reproduce desde el material
+oficial.
+
+**El índice todavía no se versiona.** Depende del modelo de embeddings, que es la decisión
+D2 y sigue abierta: comprometerlo ahora dejaría un binario grande en la historia que habría
+que reemplazar por otro en la etapa 11. Se versiona una sola vez, cuando sus entradas estén
+decididas.
+
+**Verificado:** `evals/pertinencia_procedimiento.py`, 13/13.

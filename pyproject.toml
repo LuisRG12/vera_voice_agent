@@ -18,6 +18,10 @@ dependencies = [
     "numpy>=1.26",
     "pypdf>=5.0",
     "python-docx>=1.1",
+    # Para PDFs cifrados: el corpus trae uno que sin esto no se puede abrir. Y la
+    # consola recibe documentos del evaluador que no hemos visto, donde un PDF
+    # protegido es un formato perfectamente normal.
+    "cryptography>=42",
 ]
 
 [tool.uv]
