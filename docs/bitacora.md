@@ -153,3 +153,68 @@ que reemplazar por otro en la etapa 11. Se versiona una sola vez, cuando sus ent
 decididas.
 
 **Verificado:** `evals/pertinencia_procedimiento.py`, 13/13.
+
+---
+
+## Etapa 4 · El modelo local
+
+### D1 — resuelta: `llama3.2:3b`
+
+La lista de modelos permitidos del reto tiene cuatro entradas y **dos están retiradas por
+sus proveedores**: el modelo de nube con ventana grande ya no existe en su API, y el de
+baja latencia fue retirado por su plataforma, cuyo reemplazo no está en la lista. Quedan
+los dos locales, y entre esos se decide midiendo.
+
+**Se mide en CPU pura**, no en la máquina de desarrollo. El despliegue se cronometra en el
+equipo de quien evalúa, y el reto vende explícitamente viabilidad en hardware común:
+publicar números de GPU sería reportar métricas que no se sostienen en la sesión.
+
+`uv run python -m evals.spike_modelo`
+
+| modelo | juez de riesgo | falsos negativos | voz limpia | TTFA | fallos |
+|---|---:|---:|---:|---:|---|
+| **llama3.2:3b** | **9/10** | **1** | **6/6** | 2.822 ms | — |
+| phi3.5:3.8b | 7/10 | 3 | 3/6 | 2.847 ms | tuteo×2, largo |
+
+Gana en lo que más pesa: **menos falsos negativos del juez de riesgo** —no escalar cuando
+había que escalar es la falla clínica más grave— y la única respuesta limpia en los seis
+casos de habla colombiana. La latencia es prácticamente igual, así que no compensa nada.
+
+### El esquema como gramática, no como sugerencia
+
+Con un runtime local el JSON Schema se traduce a una gramática y el modelo **no puede
+emitir tokens fuera de ella**. Con salida estructurada por API el esquema era una
+instrucción que el modelo podía desobedecer; aquí es el espacio de lo emitible.
+
+Eso convierte al esquema en el sitio correcto para imponer invariantes, y se aprovecha en
+dos lugares:
+
+- **`grounded_response_for()`** construye el esquema de cada turno con los fragmentos
+  realmente recuperados: `list[Literal[1, 2]]` cuando hay dos, y `maxItems: 0` cuando el
+  retrieval no devolvió nada. **Citar un documento que no se le ofreció al modelo pasó de
+  estar prohibido a ser imposible de generar.**
+- **`RiskAssessment` va acotado por longitud.** Sin ese límite el modelo copia el fragmento
+  entero en `evidence` y agota su presupuesto de tokens a mitad del JSON: salida truncada y
+  turno degradado, justo en el momento más delicado de la llamada. Y `risk` va primero en
+  el esquema, porque la gramática obliga a respetar ese orden y así llega aunque la
+  generación se corte.
+
+### Dónde corre
+
+**No se fuerza CPU.** El runtime usa GPU si la hay y CPU si no, que es lo que permite que
+esto levante en cualquier equipo. `LLM_NUM_GPU=0` existe para **medir** el escenario sin
+tarjeta —que es el que hay que reportar—, no para degradar a quien la tenga.
+
+### Detalles que cuestan un turno si se ignoran
+
+- **`num_ctx` explícito.** El valor por defecto del runtime es pequeño y el prompt de un
+  turno lo desborda. Al desbordarse trunca **por el principio**, que es donde va el prompt
+  de sistema con las reglas de seguridad, y no avisa.
+- **`keep_alive`.** Sin él el modelo se descarga tras unos minutos ociosos y el primer
+  turno después de una pausa paga la recarga entera. En voz eso es un silencio inaceptable.
+- **`/api/health` reporta estado real**, no configuración: si el runtime está arriba y si el
+  modelo está descargado. Lo que puede fallar no es una credencial.
+
+**Todavía no está bien, y es esperable.** El modelo tutea y `citation_ids` sale vacío
+aunque use el contexto. Las reglas de conversación son la etapa 6 y la derivación de citas
+la etapa 7; esta etapa entrega el cliente y las garantías de formato.

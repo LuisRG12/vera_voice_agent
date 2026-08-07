@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from server.agent.llm import probe
 from server.config import settings
 from server.knowledge.service import KnowledgeService
 
@@ -37,9 +38,15 @@ class DocumentoTexto(BaseModel):
 @app.get("/api/health")
 async def health() -> dict:
     k = app.state.knowledge
+    # Estado REAL del modelo, no presencia de configuración: lo que puede fallar
+    # es que el runtime no esté arriba o que el modelo no esté descargado, y eso
+    # hay que verlo aquí y no en el primer turno de una llamada.
+    modelo = await asyncio.to_thread(probe)
     return {
         "status": "ok",
         "version": app.version,
+        "llm_ready": modelo["server"] and modelo["model_present"],
+        "llm": modelo,
         "embedding_model": k.embedder.name,
         "docs": len(k.documents(include_deleted=False)),
     }

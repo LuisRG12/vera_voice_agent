@@ -22,6 +22,9 @@ dependencies = [
     # consola recibe documentos del evaluador que no hemos visto, donde un PDF
     # protegido es un formato perfectamente normal.
     "cryptography>=42",
+    # Modelo de lenguaje local y, más adelante, proveedores de voz: todo por
+    # HTTP/WebSocket directo. Un SDK no aporta nada sobre una API local.
+    "httpx>=0.27",
 ]
 
 [tool.uv]
@@ -33,3 +36,10 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Los prompts son contenido, no código: partirlos por ancho de línea cambiaría
+# literalmente lo que el modelo lee. Se exceptúan solo los archivos que los
+# contienen, no el proyecto entero.
+"**/prompts.py" = ["E501"]
+"evals/spike_modelo.py" = ["E501"]

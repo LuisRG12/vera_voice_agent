@@ -10,20 +10,40 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 3 de 11: corpus clínico del reto y recuperación acotada al procedimiento del paciente.
+Etapa 4 de 11: el agente razona con un modelo de lenguaje local.
 
 ## Requisitos
 
-Python 3.11+ y [uv](https://docs.astral.sh/uv/). Sin Docker, sin base de datos, sin GPU.
+Python 3.11+, [uv](https://docs.astral.sh/uv/) y [Ollama](https://ollama.com).
+Sin Docker, sin base de datos y **sin ninguna API key**.
 
 ## Ejecutar
 
 ```bash
 uv sync
+uv run scripts/setup.py    # descarga modelo y embeddings en paralelo
 uv run main.py
 ```
 
-La primera ejecución descarga el modelo de embeddings; después arranca en segundos.
+```bash
+curl http://localhost:8000/api/health
+```
+
+`llm_ready: true` significa que el runtime está arriba y el modelo descargado. Si es
+`false`, el objeto `llm` de esa misma respuesta dice cuál de las dos cosas falta.
+
+## El modelo
+
+`llama3.2:3b`, local. El reto fija una lista cerrada de modelos permitidos; de los cuatro,
+los dos de nube están retirados por sus proveedores. Entre los dos locales, la elección se
+midió **en CPU** —que es lo que puede tener quien despliegue esto— y está en la
+[bitácora](docs/bitacora.md), etapa 4.
+
+**Corre en cualquier equipo**: el runtime usa GPU si la hay y CPU si no. No se fuerza nada.
+
+Correr local no es solo cumplimiento: elimina la clave, elimina el techo de peticiones por
+minuto de los niveles gratuitos —que con dos invocaciones por turno se agota en una
+conversación real— y deja el costo por llamada en cero.
 
 ## Conocimiento vivo
 
@@ -70,12 +90,20 @@ uv run python -m evals.pertinencia_procedimiento     # 13/13 · la recuperación
 
 No invocan ningún modelo de lenguaje: corren en segundos y siempre dan lo mismo.
 
+La comparativa que eligió el modelo sí lo invoca, y tarda:
+
+```bash
+uv run python -m evals.spike_modelo        # CPU pura (el escenario que decide)
+uv run python -m evals.spike_modelo --gpu  # con GPU, para contrastar
+```
+
 ## Estructura
 
 ```
+server/agent/       cliente del modelo, esquemas de salida, lectura incremental
 server/knowledge/   ingesta, troceado, embeddings, recuperación híbrida, tombstones
 server/             backend (FastAPI)
-scripts/            construcción del índice del corpus
+scripts/            preparación del entorno y construcción del índice
 evals/              arneses de prueba reproducibles
 docs/               arquitectura y bitácora de decisiones
 ```
