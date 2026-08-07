@@ -1,0 +1,9 @@
+# Finales de línea normalizados a LF en el repositorio. Sin esto, quien clone
+# desde Windows genera diferencias fantasma en archivos que nadie tocó.
+* text=auto eol=lf
+
+# Binarios: nunca normalizar.
+*.pdf   binary
+*.xlsx  binary
+*.wav   binary
+*.db    binary
