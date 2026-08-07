@@ -297,3 +297,91 @@ ruido —«mi hija tiene fiebre», «el médico me dijo que si hay pus llame»�
 no compuerta, a propósito: detectar de más cuesta una alerta revisable; detectar de menos
 cuesta un paciente. Distinguir un síntoma reportado de uno citado o hipotético es trabajo
 del juez, que sí entiende el contexto.
+
+---
+
+## Etapa 6 · Diálogo
+
+### El estado vive en código, no en la memoria del modelo
+
+Es la pieza que hace fiable a un modelo pequeño. El procedimiento, el día postoperatorio y
+los síntomas ya reportados se extraen con reglas y se guardan en slots; al modelo se le
+entrega un resumen compacto en cada turno. No puede perder el hilo ni contradecirse entre
+turnos **porque no es él quien recuerda**.
+
+Extraer slots con reglas tiene además dos ventajas prácticas: es instantáneo y es
+comprobable sin gastar una invocación. `evals/deteccion_procedimiento.py` son 33
+comprobaciones con habla de paciente colombiano, varias degradadas como las entrega un
+reconocedor de voz.
+
+**La última mención manda**, tanto para el procedimiento como para el día. Congelar la
+primera no dejaba forma de corregir: si el paciente se equivocaba —o el reconocedor
+transcribía mal el primer turno— la recuperación quedaba sesgada al protocolo equivocado
+durante toda la llamada.
+
+### D19 — el prompt, dimensionado para un modelo pequeño
+
+Se midieron cuatro colocaciones de las mismas reglas sobre los mismos casos clínicos,
+contando violaciones **comprobables por código** —usted/tuteo, idioma, brevedad, muletilla
+inicial— y no juzgadas por otro modelo, que sería medir con la misma vara torcida:
+
+| colocación | respuestas limpias | tokens/turno |
+|---|---:|---:|
+| reglas extensas en el sistema | 2/5 | 1.205 |
+| núcleo en el sistema | 4/5 | 357 |
+| **reglas junto a la pregunta** | **5/5** | 376 |
+
+El prompt largo es peor en las tres dimensiones a la vez: obedece menos, cuesta más tokens
+y tarda más. En CPU recortar bajó el tiempo hasta el primer token de 4.508 a 1.169 ms.
+
+Dos detalles de formato que costaron medir:
+
+- **Las reglas van sin numerar.** Numeradas chocaban con los fragmentos del contexto, que
+  llegan como `[#1 | doc §sección]`: el modelo mezclaba las dos numeraciones y respondía
+  «según la regla #1», citando una instrucción en vez de un documento.
+- **No se le pide citar.** Un modelo pequeño identifica bien el fragmento y lo escribe en el
+  campo equivocado; la cita la derivará el código en la etapa 7. Quitarle ese trabajo libera
+  el prompt para lo que sí depende de él.
+
+### Las dos rutas comparten todo lo que decide algo
+
+`handle_turn` (texto) y `stream_turn` (voz) solo se diferencian en cómo entregan el texto.
+`_preparar`, `_recuperar`, `_ruta_segura` y `_cerrar` son de las dos.
+
+Es una decisión de estructura contra una clase concreta de defecto: escribir cada ruta por
+su lado hace que un control se corrija en una y no en la otra, y esa variante es
+especialmente traicionera —la prueba pasa por donde se corrigió y el fallo vive donde nadie
+volvió a mirar—. `evals/dialogo.py` prueba las dos con **los mismos casos** y compara sus
+salidas.
+
+### Un fallo que solo apareció contra el sistema completo
+
+La compuerta de ausencia de corpus se equivocaba en un caso real. Un paciente de
+apendicectomía preguntó cuándo podía ducharse, **un documento subido por la consola lo
+respondía**, y aun así recibió *«para su cirugía no tengo cargados documentos de cuidado»*.
+
+La causa: la compuerta miraba solo si existía material **etiquetado** con ese
+procedimiento. Los documentos que sube el evaluador no llevan etiqueta —no podemos adivinar
+a qué cirugía pertenecen—, así que la condición se cumplía aunque hubiera respuesta.
+
+Ahora exige las **dos** condiciones: sin material etiquetado **y** sin evidencia. Negarle a
+un paciente una respuesta que sí estaba es tan defectuoso como inventarla.
+
+Ninguna de las 17 comprobaciones anteriores lo detectaba, porque todas usaban corpus
+etiquetado. Se añadió el caso.
+
+### Verificado
+
+| Arnés | Resultado |
+|---|---|
+| `evals/deteccion_procedimiento.py` | 33/33 |
+| `evals/dialogo.py` | 19/19 |
+
+Y de punta a punta contra el modelo real, por `POST /api/llamada/turno`: responde con el
+documento cuando lo hay, declara el límite cuando no, y escala el signo de alarma con
+`fuente=both` —reglas y juez coincidiendo—.
+
+**Lo que todavía no está bien**, y es el trabajo de la etapa 7: `citation_ids` sigue
+saliendo vacío aunque el modelo use el contexto, y en un turno se coló un `}` suelto al
+inicio de la respuesta. Lo primero es la trazabilidad —20 puntos de la rúbrica—; lo segundo,
+un carácter que un sintetizador de voz leería en voz alta.

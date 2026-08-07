@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 5 de 11: detección de signos de alarma y decisión de escalamiento.
+Etapa 6 de 11: el agente conversa, con estado clínico y decisión por turno.
 
 ## Requisitos
 
@@ -81,6 +81,23 @@ paciente**. No es una mejora de precisión: los protocolos postoperatorios compa
 vocabulario casi por completo, así que sin ese filtro una pregunta sobre una cirugía se
 responde citando otra.
 
+## Conversar con el agente
+
+```bash
+curl -X POST http://localhost:8000/api/llamada/turno \
+  -H "Content-Type: application/json" \
+  -d '{"text":"buenas, me sacaron el apéndice hace dos días"}'
+```
+
+Cada turno devuelve lo que se dijo, la decisión de riesgo con su justificación, las citas
+que la sustentan y el estado de la llamada. La ruta de texto existe antes que la voz a
+propósito: permite auditar el cerebro del agente sin micrófono, y reproducir un turno
+exacto cuando algo suene mal.
+
+**El estado vive en código**, no en la memoria del modelo: procedimiento, día
+postoperatorio y síntomas ya reportados se extraen con reglas. Un modelo pequeño no puede
+perder el hilo si no es él quien recuerda.
+
 ## Seguridad clínica
 
 La decisión de escalar la toman **dos capas independientes** y se queda la más
@@ -102,6 +119,8 @@ uv run python -m evals.alarmas_base                  # 10/10 · signos de alarma
 uv run python -m evals.alarmas_adversariales         # 16/16 · casos diseñados para romper las reglas
 uv run python -m evals.lexico_colombiano             # 85/85 · léxico clínico y sus trampas
 uv run python -m evals.decision_seguridad            # 16/16 · la decisión sobrevive al modelo caído
+uv run python -m evals.deteccion_procedimiento       # 33/33 · el procedimiento, en habla de paciente
+uv run python -m evals.dialogo                       # 19/19 · lógica del turno, texto y voz iguales
 ```
 
 No invocan ningún modelo de lenguaje: corren en segundos y siempre dan lo mismo.

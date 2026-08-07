@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from server.agent.dialogue import DialogueManager
 from server.agent.llm import probe
 from server.config import settings
 from server.knowledge.service import KnowledgeService
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     # En memoria: la sesión de demostración empieza limpia y lo que se suba
     # durante ella no se arrastra a la siguiente.
     app.state.knowledge = KnowledgeService(db_path=":memory:")
+    app.state.dialogo = DialogueManager(app.state.knowledge)
     yield
     app.state.knowledge.close()
 
@@ -88,6 +90,29 @@ async def consultar(q: str, k: int = 5) -> dict:
             for c in r["citations"]
         ],
     }
+
+
+class TurnoPaciente(BaseModel):
+    text: str
+
+
+@app.post("/api/llamada/turno")
+async def turno(body: TurnoPaciente) -> dict:
+    """Un turno de conversación por texto.
+
+    Existe antes que la voz a propósito: permite ejercitar y auditar el cerebro
+    del agente —decisión de riesgo, citas, estado— sin micrófono ni proveedor de
+    voz de por medio. Cuando algo suene mal en una llamada, aquí se puede
+    reproducir el turno exacto.
+    """
+    dm = app.state.dialogo
+    t = await asyncio.to_thread(dm.handle_turn, body.text)
+    return t.model_dump()
+
+
+@app.get("/api/llamada/estado")
+async def estado_llamada() -> dict:
+    return app.state.dialogo.state.snapshot()
 
 
 @app.get("/")

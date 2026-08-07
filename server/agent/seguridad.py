@@ -16,11 +16,9 @@ alerta de más; un falso negativo, un paciente que no fue a urgencias.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
 from server.agent.llm import StructuredLLM
 from server.agent.safety_rules import ACTION_FOR, RuleFlag, max_sev, max_severity
-from server.agent.schemas import ActionType, RiskAssessment, RiskLevel
+from server.agent.schemas import RiskAssessment, SafetyDecision
 
 JUEZ_SYSTEM = """Evalúas el riesgo clínico de lo que reporta un paciente recién operado.
 
@@ -31,16 +29,6 @@ JUEZ_SYSTEM = """Evalúas el riesgo clínico de lo que reporta un paciente reci�
 - none: sin síntoma de riesgo.
 
 Usa los umbrales del PROTOCOLO cuando lo entregado los tenga. Ante duda, SUBE el nivel; nunca lo bajes."""
-
-
-class SafetyDecision(BaseModel):
-    """Decisión combinada, con su justificación persistible."""
-
-    risk: RiskLevel
-    action: ActionType
-    rationale: str
-    rule_flags: list[str] = Field(default_factory=list)
-    source: str  # rules | llm | both | none
 
 
 def formatear_fragmentos(cites) -> str:

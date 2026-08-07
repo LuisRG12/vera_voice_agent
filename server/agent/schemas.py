@@ -70,6 +70,40 @@ def grounded_response_for(chunk_ids: tuple[int, ...]) -> type[GroundedResponse]:
         "GroundedResponseCitas", __base__=GroundedResponse, citation_ids=campo)
 
 
+class SafetyDecision(BaseModel):
+    """Decisión de seguridad combinada, con su justificación persistible.
+
+    `source` dice qué capa la decidió (`rules`, `llm`, `both`, `none`). Una
+    decisión clínica que no se puede explicar no sirve para auditarla después.
+    """
+
+    risk: RiskLevel
+    action: ActionType
+    rationale: str
+    rule_flags: list[str] = Field(default_factory=list)
+    source: str
+
+
+class AgentTurn(BaseModel):
+    """Todo lo que produjo un turno: lo que se dijo, por qué, y con qué respaldo.
+
+    Es la unidad que se persiste y la que alimenta la trazabilidad. Que la
+    decisión de seguridad y las citas viajen JUNTO al texto —y no en registros
+    aparte— es lo que permite auditar después por qué el agente dijo lo que dijo.
+    """
+
+    utterance: str
+    has_evidence: bool
+    citations: list[dict] = Field(default_factory=list)
+    decision: SafetyDecision
+    phase: str = ""
+    # ok | sin_evidencia | sin_corpus_procedimiento | degradado_sin_modelo
+    grounding_flag: str = "ok"
+    state: dict = Field(default_factory=dict)
+    usage: dict = Field(default_factory=dict)
+    latency_ms: dict = Field(default_factory=dict)
+
+
 class RiskAssessment(BaseModel):
     """Salida del juez de riesgo.
 
