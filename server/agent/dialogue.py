@@ -19,6 +19,8 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from server.agent.citas import derivar, limpiar
+from server.agent.grounding import cifras_sin_respaldo
 from server.agent.llm import LLMError, StructuredLLM
 from server.agent.prompts import (
     DEGRADADO,
@@ -144,10 +146,19 @@ class DialogueManager:
         ])
 
     def _cerrar(self, flags, ra, utterance: str, cites, citation_ids: list[int],
-                usage: dict, lat: dict, marca: str = "ok") -> AgentTurn:
+                usage: dict, lat: dict, marca: str = "ok",
+                user_text: str = "") -> AgentTurn:
         """Punto único por el que pasan las dos rutas."""
         st = self.state
         decision = combinar(flags, ra)
+
+        # Auditoría numérica. Va aquí y no en cada ruta porque `_cerrar` es lo
+        # único por lo que pasan las dos: ponerlo en `handle_turn` habría dejado
+        # la ruta de voz sin ello.
+        usados_para_cifras = [c for c in cites if c.chunk_id in set(citation_ids)]
+        if marca == "ok" and (huerfanas := cifras_sin_respaldo(
+                utterance, usados_para_cifras, user_text)):
+            marca = f"cifra_sin_respaldo:{','.join(huerfanas)}"
         st.max_risk = max((st.max_risk, decision.risk),
                           key=["none", "low", "moderate", "high", "critical"].index)
         if decision.risk in ("high", "critical"):
@@ -201,7 +212,7 @@ class DialogueManager:
             except LLMError:
                 ra, uso = None, {"input_tokens": 0, "output_tokens": 0}
             lat["modelo_ms"] = round((time.perf_counter() - t1) * 1000)
-            return self._cerrar(flags, ra, respuesta, cites, [], uso, lat, marca)
+            return self._cerrar(flags, ra, respuesta, cites, [], uso, lat, marca, user_text)
 
         # Respuesta y juez en paralelo: el juez no depende del texto generado.
         try:
@@ -217,9 +228,11 @@ class DialogueManager:
         lat["modelo_ms"] = round((time.perf_counter() - t1) * 1000)
         uso = {"input_tokens": uso_resp["input_tokens"] + uso_juez["input_tokens"],
                "output_tokens": uso_resp["output_tokens"] + uso_juez["output_tokens"]}
-        permitidos = {c.chunk_id for c in cites}
-        citas = [i for i in resp.citation_ids if i in permitidos]
-        return self._cerrar(flags, ra, resp.utterance, cites, citas, uso, lat)
+        # La cita la deriva el código; de paso el texto queda limpio de marcas y
+        # de restos de JSON que un sintetizador leería en voz alta.
+        texto, citas = derivar(resp.utterance, cites, {c.chunk_id for c in cites},
+                               declaradas=list(resp.citation_ids))
+        return self._cerrar(flags, ra, texto, cites, citas, uso, lat, user_text=user_text)
 
     def _responder(self, user_text: str, cites, objetivo: str):
         permitidos = tuple(sorted(c.chunk_id for c in cites))
@@ -253,6 +266,7 @@ class DialogueManager:
 
         splitter = SentenceSplitter()
         dichas: list[str] = []
+        marcas: list[int] = []
         obj = None
         uso_resp = {"input_tokens": 0, "output_tokens": 0}
         permitidos = tuple(sorted(c.chunk_id for c in cites))
@@ -263,6 +277,14 @@ class DialogueManager:
             ):
                 if kind == "delta":
                     for frase in splitter.push(payload):
+                        # La limpieza va AQUÍ, frase a frase, y no al final: en
+                        # voz cada frase se sintetiza en cuanto está completa, así
+                        # que limpiar después no llega a tiempo y el paciente
+                        # oiría «abre paréntesis citation ids dos».
+                        frase, ids = limpiar(frase)
+                        marcas.extend(ids)
+                        if not frase:
+                            continue
                         dichas.append(frase)
                         yield "speak", frase
                 elif kind == "final":
@@ -276,19 +298,28 @@ class DialogueManager:
             return
 
         if resto := splitter.flush():
-            dichas.append(resto)
-            yield "speak", resto
+            resto, ids = limpiar(resto)
+            marcas.extend(ids)
+            if resto:
+                dichas.append(resto)
+                yield "speak", resto
 
-        utterance = " ".join(dichas) or (obj.utterance if obj else "")
-        if obj and not dichas:
+        utterance = " ".join(dichas)
+        if not utterance and obj:
+            utterance, ids = limpiar(obj.utterance)
+            marcas.extend(ids)
             yield "speak", utterance
 
         ra, uso_juez = await self._esperar_juez(juez)
         lat["modelo_ms"] = round((time.perf_counter() - t1) * 1000)
         uso = {"input_tokens": uso_resp["input_tokens"] + uso_juez["input_tokens"],
                "output_tokens": uso_resp["output_tokens"] + uso_juez["output_tokens"]}
-        citas = [i for i in (obj.citation_ids if obj else []) if i in set(permitidos)]
-        yield "turn", self._cerrar(flags, ra, utterance, cites, citas, uso, lat)
+        # El texto ya se limpió frase a frase; aquí solo se decide la cita, con
+        # las marcas recogidas por el camino como segunda fuente.
+        _, citas = derivar(utterance, cites, set(permitidos),
+                           declaradas=list(obj.citation_ids if obj else []) + marcas)
+        yield "turn", self._cerrar(flags, ra, utterance, cites, citas, uso, lat,
+                                   user_text=user_text)
 
     @staticmethod
     async def _esperar_juez(tarea) -> tuple[RiskAssessment | None, dict]:

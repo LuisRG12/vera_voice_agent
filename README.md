@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 6 de 11: el agente conversa, con estado clínico y decisión por turno.
+Etapa 7 de 11: cada afirmación clínica se puede rastrear hasta el documento que la sustenta.
 
 ## Requisitos
 
@@ -98,6 +98,16 @@ exacto cuando algo suene mal.
 postoperatorio y síntomas ya reportados se extraen con reglas. Un modelo pequeño no puede
 perder el hilo si no es él quien recuerda.
 
+## Trazabilidad
+
+Cada respuesta clínica registra **de qué fragmento sale**, y la cita la deriva el código —no
+la declara el modelo—: un modelo pequeño identifica bien el documento pero lo escribe en el
+campo equivocado, así que se recupera de donde lo haya puesto y, si no lo puso, se atribuye
+por solapamiento con la evidencia.
+
+Además, el código audita la prosa del modelo: **una cifra clínica que no aparezca en ninguna
+fuente citada queda marcada** en la traza de la llamada.
+
 ## Seguridad clínica
 
 La decisión de escalar la toman **dos capas independientes** y se queda la más
@@ -121,6 +131,7 @@ uv run python -m evals.lexico_colombiano             # 85/85 · léxico clínico
 uv run python -m evals.decision_seguridad            # 16/16 · la decisión sobrevive al modelo caído
 uv run python -m evals.deteccion_procedimiento       # 33/33 · el procedimiento, en habla de paciente
 uv run python -m evals.dialogo                       # 19/19 · lógica del turno, texto y voz iguales
+uv run python -m evals.trazabilidad                  # 30/30 · citas derivadas y auditoría de cifras
 ```
 
 No invocan ningún modelo de lenguaje: corren en segundos y siempre dan lo mismo.

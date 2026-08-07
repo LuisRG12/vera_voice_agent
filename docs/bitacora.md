@@ -385,3 +385,60 @@ documento cuando lo hay, declara el límite cuando no, y escala el signo de alar
 saliendo vacío aunque el modelo use el contexto, y en un turno se coló un `}` suelto al
 inicio de la respuesta. Lo primero es la trazabilidad —20 puntos de la rúbrica—; lo segundo,
 un carácter que un sintetizador de voz leería en voz alta.
+
+---
+
+## Etapa 7 · Trazabilidad
+
+### El modelo sabe qué fragmento usó; se equivoca de campo
+
+Pedirle a un modelo pequeño que rellene `citation_ids` funciona mal. Pero mirando lo que
+escribe se ve que el problema **no es de comprensión**:
+
+> *«Debe avisarse al equipo médico **(citation_ids: #1)**, ya que la salida…»*
+> *«Su dolor es leve a moderado según **[#2 | plan_casero.md §Dolor]**…»*
+> *«En esta semana inicial postoperatoria **(#3)**, se recomienda caminar…»*
+
+El fragmento correcto está identificado, escrito dentro del texto en vez de en su campo. Es
+un fallo de enrutamiento.
+
+**La cita la deriva el código**, con tres fuentes en orden de fiabilidad y todas filtradas
+contra lo recuperado en ese turno: lo declarado → las marcas que dejó en el texto →
+atribución por solapamiento de contenido con la evidencia.
+
+Efecto medido de punta a punta: la pregunta por la ducha pasó de `citas: (ninguna)` a
+`citas: ['protocolo_apendicectomia.md']`. Son 20 puntos de la rúbrica que estaban en cero.
+
+### El defecto de voz que esto destapó
+
+Esas marcas iban camino del sintetizador. Sin limpiarlas, el paciente oye *«abre paréntesis
+citation ids dos»*. Y se observó además una **llave suelta** al inicio de una respuesta
+—resto del JSON que el modelo dejó escapar dentro del propio campo de texto—, que se leería
+igual en voz alta.
+
+**En la ruta de voz no basta con limpiar al final**, porque cada frase se sintetiza en
+cuanto está completa: la limpieza va frase a frase, antes de emitir.
+
+### Las cifras se auditan contra su fuente
+
+Verificar que las citas existan no basta: el modelo puede citar bien y aun así decir un
+número que no está en el fragmento. Comprobar en general que lo dicho se sigue de la fuente
+exige juicio semántico, pero **la clase más peligrosa es numérica** —un umbral, un plazo,
+una dosis— y esa sí se comprueba sin modelo.
+
+**Un falso positivo que solo apareció contra el modelo real.** El paciente dijo *«tengo
+treinta y nueve de fiebre»* y el agente respondió *«fiebre de 39 grados»*: la auditoría lo
+marcó como cifra inventada, porque el dígito no aparecía literalmente en lo que dijo el
+paciente. Era un falso positivo **en el caso más frecuente de todos**, reportar fiebre.
+
+Los pacientes dicen las cifras en letras y el agente las devuelve en dígitos. Ahora la
+auditoría convierte lo que dijo el paciente antes de comparar. Una cifra que nadie mencionó
+—«espere 48 horas»— sigue marcándose.
+
+### Verificado
+
+`evals/trazabilidad.py`, 30/30, con respuestas **literales** capturadas del modelo local:
+se prueba contra lo que escribe de verdad, no contra lo que convendría que escribiera.
+
+De punta a punta: los dos turnos con contenido clínico citan el protocolo, `grounding=ok`,
+y el signo de alarma escala con `fuente=both`.
