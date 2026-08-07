@@ -1,0 +1,25 @@
+[project]
+name = "vera"
+version = "0.1.0"
+description = "Agente de voz para seguimiento postoperatorio"
+requires-python = ">=3.11"
+# Un solo grupo de dependencias a propósito: un `uv sync` sin banderas deja la
+# aplicación completamente funcional. Los extras opcionales son una trampa en un
+# despliegue cronometrado —si quien lo instala olvida la bandera, el agente
+# arranca a medias y el error que ve no dice por qué—.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.6",
+    "python-dotenv>=1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

@@ -1,0 +1,16 @@
+# Credenciales. El .env.example sí se versiona; el .env real, nunca.
+.env
+
+# Entorno y caché de Python
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+
+# Bases de datos locales de ejecución (llamadas, gobernanza, conocimiento).
+# La del corpus clínico es la excepción y se declara más abajo cuando exista.
+*.db
+*.sqlite3
+
+# Audio generado en pruebas
+*.wav
