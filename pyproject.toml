@@ -49,6 +49,10 @@ select = ["E", "F", "I", "UP", "B"]
 # contienen, no el proyecto entero.
 "**/prompts.py" = ["E501"]
 "evals/spike_modelo.py" = ["E501"]
+# Las preguntas del conjunto etiquetado son frases de paciente: partirlas por
+# ancho de línea las volvería ilegibles para quien deba revisar si el conjunto
+# es representativo, que es lo que da valor a la calibración.
+"evals/calibracion.py" = ["E501"]
 "server/agent/seguridad.py" = ["E501"]
 # El léxico es un diccionario de datos: sus entradas son frases de paciente y
 # partirlas por ancho de línea las volvería ilegibles para quien deba revisarlas,

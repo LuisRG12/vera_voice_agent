@@ -44,8 +44,17 @@
   .tarjeta{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
            padding:16px;margin-bottom:14px}
 
+  .dos-columnas{display:grid;grid-template-columns:1fr 320px;gap:16px;margin:16px 0}
+  @media (max-width:900px){.dos-columnas{grid-template-columns:1fr}}
   #transcripcion{min-height:240px;max-height:46vh;overflow:auto;display:flex;
-                 flex-direction:column;gap:10px;margin:16px 0}
+                 flex-direction:column;gap:10px}
+  aside .tarjeta{margin-bottom:12px}
+  aside h2{font-size:13px;color:var(--fg2);text-transform:uppercase;letter-spacing:.06em}
+  .datos{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px}
+  .datos dt{color:var(--fg2)} .datos dd{margin:0}
+  .regla{display:inline-block;background:#f8514922;border:1px solid #f8514966;
+         color:var(--alert);border-radius:4px;padding:1px 7px;font-size:12px;margin:2px 4px 2px 0}
+  .porque{font-size:13px;color:var(--fg2);margin:8px 0 0;line-height:1.45}
   .burbuja{max-width:78%;padding:9px 13px;border-radius:12px;white-space:pre-wrap}
   .paciente{align-self:flex-end;background:#1f6feb33;border:1px solid #1f6feb66}
   .vera{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
@@ -100,7 +109,22 @@
       <button class="sec" id="btn-texto">Escribir en vez de hablar</button>
       <span class="cita" id="estado-mic"></span>
     </div>
-    <div id="transcripcion"></div>
+    <!-- Dos columnas: la conversación y, al lado, lo que el sistema está
+         decidiendo. Verlo en vivo es lo que distingue una demostración de un
+         chat: la decisión clínica y el estado no deberían buscarse en un log. -->
+    <div class="dos-columnas">
+      <div id="transcripcion"></div>
+      <aside>
+        <div class="tarjeta">
+          <h2>Decisión clínica</h2>
+          <div id="panel-decision" class="vacio">Sin turnos todavía.</div>
+        </div>
+        <div class="tarjeta">
+          <h2>Estado de la llamada</h2>
+          <dl id="panel-estado" class="datos"></dl>
+        </div>
+      </aside>
+    </div>
     <div class="fila" id="caja-texto" hidden>
       <input id="entrada" style="flex:1;background:var(--panel);color:var(--fg);
              border:1px solid var(--line2);border-radius:var(--r);padding:9px 12px;font:inherit"
@@ -216,6 +240,51 @@ function decir(texto) {
 }
 const callar = () => window.speechSynthesis && speechSynthesis.cancel();
 
+/* Los dos paneles de la derecha. Muestran POR QUÉ, no solo qué: qué capa tomó la
+   decisión, qué reglas dispararon y qué documento la sustenta. Es la diferencia
+   entre ver un chat y poder auditar un agente clínico. */
+const ACCION = { continue: 'continuar', advise: 'aconsejar y vigilar',
+                 escalate: 'escalar al equipo clínico', emergency: 'derivar a urgencias' };
+const CAPA = { rules: 'reglas deterministas', llm: 'valoración del modelo',
+               both: 'reglas y modelo coinciden', none: '—' };
+
+function pintarDecision(m) {
+  const d = m.decision;
+  const cit = m.citations.map(c => `${c.doc_name} §${c.section}`);
+  $('#panel-decision').className = '';
+  $('#panel-decision').innerHTML = `
+    <div class="fila">
+      <span class="etiqueta r-${d.risk}">${d.risk}</span>
+      <strong>${ACCION[d.action] || d.action}</strong>
+    </div>
+    <p class="porque">Decidido por: ${CAPA[d.source] || d.source}</p>
+    ${d.rule_flags.length ? `<div>${d.rule_flags.map(f =>
+        `<span class="regla">${f}</span>`).join('')}</div>` : ''}
+    <p class="porque">${d.rationale}</p>
+    <p class="porque">Sustentado en: ${cit.length ? cit.join('<br>') : '—'}</p>
+    ${m.grounding_flag !== 'ok'
+      ? `<p class="porque">⚠ ${m.grounding_flag}</p>` : ''}
+    ${m.governance.alert_id
+      ? `<p class="porque">🔔 Alerta #${m.governance.alert_id} al equipo clínico</p>` : ''}`;
+}
+
+function pintarEstado(m) {
+  const s = m.state, p = m.governance.presupuesto || {};
+  const filas = [
+    ['Procedimiento', s.procedure || 'sin confirmar'],
+    ['Día postop.', s.day_postop ?? '—'],
+    ['Fase', s.phase],
+    ['Síntomas', (s.reported_symptoms || []).join(', ') || 'ninguno'],
+    ['Riesgo máximo', `<span class="etiqueta r-${s.max_risk}">${s.max_risk}</span>`],
+    ['Escalado', s.escalated ? 'sí' : 'no'],
+    ['Turnos', `${p.turnos ?? '—'} / ${p.max_turnos ?? '—'}`],
+    ['Coste', `${m.usage.input_tokens || 0}+${m.usage.output_tokens || 0} tok · ${
+      m.latency_ms.modelo_ms ?? '—'} ms`],
+  ];
+  $('#panel-estado').innerHTML = filas.map(([k, v]) =>
+    `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+
 function conectar() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/llamada`);
@@ -231,13 +300,8 @@ function conectar() {
       decir(m.text);
     } else if (m.type === 'turno') {
       burbujaVera = null;
-      const d = m.decision, cit = m.citations.map(c => c.doc_name).join(', ');
-      const partes = [`riesgo <span class="etiqueta r-${d.risk}">${d.risk}</span>`,
-                      `decidido por ${d.source}`];
-      if (cit) partes.push(`fuente: ${cit}`);
-      if (m.governance.alert_id) partes.push(`alerta #${m.governance.alert_id}`);
-      if (m.grounding_flag !== 'ok') partes.push(`⚠ ${m.grounding_flag}`);
-      const s = burbuja('sistema', ''); s.innerHTML = partes.join(' · ');
+      pintarDecision(m);
+      pintarEstado(m);
     } else if (m.type === 'interrumpido') {
       burbujaVera = null;
     } else if (m.type === 'limite') {
