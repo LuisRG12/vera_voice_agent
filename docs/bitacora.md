@@ -854,3 +854,48 @@ empieza igual que un saludo y **sí** recupera. La regla mira la frase entera, n
 
 **Verificado:** 6 fórmulas de cortesía que no recuperan y 3 turnos clínicos que sí,
 en `evals/dialogo.py`.
+
+---
+
+## D4 revisada · la síntesis pasa a ser local
+
+La primera versión usaba la voz del navegador. Funcionaba, pero tenía dos debilidades que
+no se veían hasta pensarlas:
+
+1. **Sonaba distinto en cada máquina.** `speechSynthesis` usa las voces del sistema
+   operativo: en un Windows sin voz española instalada, el agente habla con acento inglés.
+   No se puede reportar ni demostrar de forma consistente algo que no controlamos.
+2. **Nada garantizaba que el audio se quedara en la máquina.**
+
+**Piper**, que es además lo que recomienda el material del reto en «sin pay-to-win».
+Medido con `es_MX-claude-high` —español latinoamericano, no peninsular, que es lo que le
+suena natural a un paciente colombiano—:
+
+| | |
+|---|---|
+| Peso de la voz | 63 MB (contra 4,2 GB que ya se descargan) |
+| Carga del modelo | 1,2 s, una sola vez |
+| Síntesis | **6,7× tiempo real** |
+| Coste añadido al turno (en caliente) | **~150–400 ms** |
+
+Como el diálogo ya entrega frase a frase, cada una se sintetiza mientras suena la anterior.
+Solo la primera se paga en latencia.
+
+**El precalentamiento no es un detalle.** Con carga perezosa, los 1,2 s del modelo los pagaba
+la **primera frase de la llamada** —justo lo primero que oye el paciente—. Medido: primer
+audio a 3.049 ms. Precalentando en segundo plano al arrancar: **1.619 ms**. `health` sigue
+respondiendo de inmediato.
+
+**Degradación explícita:** si falta el modelo de voz, `crear_tts()` devuelve el respaldo y el
+navegador usa la suya. Un agente que no arranca es peor que uno que suena peor, y el estado
+real se reporta en `/api/health` y en la cabecera de la consola.
+
+### Lo que queda abierto, dicho de frente
+
+**El reconocimiento sigue sin ser local.** Lo hace el servicio del navegador, que envía el
+audio a un tercero. Para un agente clínico eso es una limitación real y hay que declararla,
+no esconderla.
+
+Cerrarla es viable: un reconocedor local en streaming pesa ~37 MB y correría en CPU. No se
+hizo por tiempo, no por criterio. Queda en el informe como límite conocido, con su solución
+dimensionada.

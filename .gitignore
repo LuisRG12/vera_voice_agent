@@ -23,3 +23,7 @@ __pycache__/
 
 # Audio generado en pruebas
 *.wav
+
+# Modelos de voz: se descargan con `scripts/setup.py`, no se versionan. Son
+# artefactos de terceros con licencia propia y pesan 63 MB cada uno.
+voces/

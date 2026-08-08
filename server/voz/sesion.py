@@ -1,16 +1,21 @@
 """Sesión de llamada por WebSocket: turnos por frases e interrupción.
 
-**Dónde ocurre el reconocimiento y la síntesis.** En el navegador. No es una
-simplificación: es la opción que no cuesta ninguna clave, ninguna descarga y
-ningún servicio de terceros, y la llamada va por navegador de todos modos. Con
-4,2 GB ya en el reloj del despliegue, añadir modelos de voz locales pondría en
-riesgo la compuerta de 15 minutos por una ganancia que el jurado no evalúa —el
-diseño de la voz no puntúa; lo que puntúa es la latencia y el comportamiento—.
+**Dónde ocurre cada mitad de la voz.**
 
-El servidor recibe texto y devuelve **frases**, no la respuesta completa. Esa es
-la parte que sí es ingeniería: cada frase se envía en cuanto está cerrada, así
-que el paciente empieza a oír mientras el modelo todavía genera. Esperar al turno
-completo añadiría segundos de silencio.
+- **La síntesis, en el servidor y en local** (Piper, `voz/tts.py`). Nada de lo que
+  dice el agente sale de la máquina, y suena igual en cualquier equipo.
+- **El reconocimiento, en el navegador.** Hoy eso significa que el audio del
+  paciente pasa por el servicio de reconocimiento del navegador, que **no es
+  local**. Está declarado como limitación conocida en el informe, con lo que
+  haría falta para cerrarlo (un reconocedor local, ~37 MB).
+
+El servidor recibe texto y devuelve **frases con su audio**, no la respuesta
+completa. Cada frase se envía en cuanto está cerrada, así que el paciente empieza
+a oír mientras el modelo todavía genera; esperar al turno completo añadiría
+segundos de silencio.
+
+El transcrito de cada frase va **antes** que su audio: la pantalla no tiene por
+qué esperar a la síntesis.
 
 **Interrupción (barge-in).** Si el paciente habla mientras el agente responde, se
 cancela la generación en curso y se atiende lo nuevo. Sin esto, interrumpir a un
@@ -36,12 +41,21 @@ class SesionLlamada:
         self.generando: asyncio.Task | None = None
 
     async def _emitir_turno(self, texto: str) -> None:
-        """Genera un turno y va enviando sus frases."""
+        """Genera un turno y va enviando sus frases, con su audio.
+
+        La frase se manda **antes** de sintetizarla: el transcrito aparece de
+        inmediato y el audio llega ~300 ms después. Si se esperara a tener el
+        audio, la pantalla se quedaría muda ese tiempo sin motivo.
+        """
         dm = self.st.dialogo
         try:
             async for tipo, payload in dm.stream_turn(texto):
                 if tipo == "speak":
                     await self.ws.send_json({"type": "frase", "text": payload})
+                    # La síntesis bloquea, así que va a un hilo. Si no hay voz
+                    # local devuelve None y el navegador usa la suya.
+                    if wav := await asyncio.to_thread(self.st.tts.sintetizar, payload):
+                        await self.ws.send_bytes(wav)
                 else:
                     self.st.turno_idx += 1
                     await asyncio.to_thread(self.st.llamadas.record_turn,
@@ -63,6 +77,8 @@ class SesionLlamada:
             "type": "listo",
             "call_id": self.st.call_id,
             "model": self.st.dialogo.llm.model,
+            # El cliente necesita saberlo para decidir si usa su propia voz.
+            "voz_servidor": self.st.tts.nombre != "navegador",
         })
 
         try:

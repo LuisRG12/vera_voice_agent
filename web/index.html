@@ -84,6 +84,7 @@
   <span class="estado">
     <span><span class="punto" id="p-llm"></span><span id="t-llm">comprobando…</span></span>
     <span><span class="punto" id="p-docs"></span><span id="t-docs">—</span></span>
+    <span><span class="punto" id="p-voz"></span><span id="t-voz">—</span></span>
   </span>
 </header>
 
@@ -99,9 +100,10 @@
   <section id="llamada">
     <h2>Llamada de voz</h2>
     <p class="ayuda">
-      Pulse <strong>Contestar</strong> y hable. El reconocimiento y la voz corren en el
-      navegador; el agente responde por frases, así que empieza a oírse antes de terminar
-      de generar. Puede interrumpirlo hablando encima.
+      Pulse <strong>Contestar</strong> y hable. El agente responde por frases, así que
+      empieza a oírse antes de terminar de generar, y puede interrumpirlo hablando encima.
+      La voz se sintetiza <strong>en la máquina</strong>: suena igual en cualquier equipo
+      y no sale de aquí.
     </p>
     <div class="fila">
       <button class="accion" id="btn-llamar">Contestar llamada</button>
@@ -214,6 +216,9 @@ async function salud() {
       : (h.llm.server ? 'falta descargar ' + h.llm.model : 'el modelo no responde');
     $('#p-docs').className = 'punto ' + (h.docs ? 'ok' : '');
     $('#t-docs').textContent = h.docs + ' documento' + (h.docs === 1 ? '' : 's');
+    const local = h.voz && h.voz.startsWith('piper');
+    $('#p-voz').className = 'punto ' + (local ? 'ok' : '');
+    $('#t-voz').textContent = local ? 'voz local' : 'voz del navegador';
   } catch { $('#t-llm').textContent = 'servidor no disponible'; }
 }
 salud(); setInterval(salud, 15000);
@@ -230,15 +235,45 @@ function burbuja(quien, texto) {
   return d;
 }
 
-/* La síntesis se corta al hablar el paciente: dejar que el agente termine su
-   frase mientras el paciente ya habló es justo lo que hace incómoda la llamada. */
+/* Reproducción de voz.
+
+   El servidor manda el audio ya sintetizado (Piper, local). Llega por separado
+   del texto y puede llegar más rápido de lo que se reproduce, así que hay una
+   cola: sin ella, dos frases seguidas sonarían encimadas.
+
+   Si el servidor no trae voz —falta el modelo— se cae a la del navegador, que
+   varía según el sistema operativo pero es mejor que el silencio.
+
+   Y la reproducción se corta en cuanto habla el paciente: dejar que el agente
+   termine su frase cuando el paciente ya habló es lo que hace incómoda una
+   llamada con una máquina. */
+let vozServidor = false;
+const colaAudio = [];
+let sonando = null;
+
+function encolarAudio(blob) {
+  colaAudio.push(URL.createObjectURL(blob));
+  if (!sonando) siguienteAudio();
+}
+function siguienteAudio() {
+  const url = colaAudio.shift();
+  if (!url) { sonando = null; return; }
+  sonando = new Audio(url);
+  sonando.onended = sonando.onerror = () => { URL.revokeObjectURL(url); siguienteAudio(); };
+  sonando.play().catch(() => siguienteAudio());
+}
 function decir(texto) {
+  if (vozServidor) return;                    // el audio llega por el WebSocket
   if (!('speechSynthesis' in window)) return;
   const u = new SpeechSynthesisUtterance(texto);
   u.lang = 'es-CO';
   speechSynthesis.speak(u);
 }
-const callar = () => window.speechSynthesis && speechSynthesis.cancel();
+function callar() {
+  colaAudio.length = 0;
+  if (sonando) { sonando.pause(); sonando = null; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+}
 
 /* Los dos paneles de la derecha. Muestran POR QUÉ, no solo qué: qué capa tomó la
    decisión, qué reglas dispararon y qué documento la sustenta. Es la diferencia
@@ -290,10 +325,15 @@ function conectar() {
   ws = new WebSocket(`${proto}://${location.host}/ws/llamada`);
   let burbujaVera = null;
 
+  ws.binaryType = 'blob';
   ws.onmessage = e => {
+    // Los binarios son audio ya sintetizado; el resto, eventos del turno.
+    if (e.data instanceof Blob) { encolarAudio(e.data); return; }
     const m = JSON.parse(e.data);
     if (m.type === 'listo') {
-      burbuja('sistema', `Llamada ${m.call_id} · modelo ${m.model}`);
+      vozServidor = !!m.voz_servidor;
+      burbuja('sistema', `Llamada ${m.call_id} · modelo ${m.model}` +
+        (vozServidor ? ' · voz local' : ' · voz del navegador'));
     } else if (m.type === 'frase') {
       if (!burbujaVera) burbujaVera = burbuja('vera', '');
       burbujaVera.textContent += (burbujaVera.textContent ? ' ' : '') + m.text;

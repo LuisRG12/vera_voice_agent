@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # para contar como evidencia léxica, cuando la semántica no alcanza.
     min_lexico: int = 2
 
+    # --- Voz ---
+    # `piper` sintetiza en el servidor y suena igual en cualquier máquina;
+    # `navegador` cae a la voz del sistema operativo, que varía y en un equipo sin
+    # voz española suena con acento inglés. Se prefiere piper y se degrada solo si
+    # falta su modelo.
+    voz_proveedor: str = "piper"
+    voz_modelo: str = "es_MX-claude-high.onnx"
+
     # --- Persistencia ---
     governance_db: str = "vera_governance.db"
     calls_db: str = "vera_calls.db"

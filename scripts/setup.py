@@ -62,6 +62,28 @@ def descargar_embeddings() -> None:
     Embedder().embed_one("prueba de arranque")
 
 
+VOZ_BASE = ("https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/")
+
+
+def descargar_voz() -> None:
+    """Voz de síntesis local (63 MB). Sin ella el agente habla con la voz del
+    navegador, que varía según el sistema operativo."""
+    import httpx
+
+    destino = Path(__file__).resolve().parents[1] / "voces"
+    destino.mkdir(exist_ok=True)
+    for archivo in (settings.voz_modelo, settings.voz_modelo + ".json"):
+        ruta = destino / archivo
+        if ruta.exists() and ruta.stat().st_size > 1000:
+            continue
+        with httpx.stream("GET", VOZ_BASE + archivo, follow_redirects=True,
+                          timeout=600) as r:
+            r.raise_for_status()
+            with open(ruta, "wb") as f:
+                for trozo in r.iter_bytes(1 << 20):
+                    f.write(trozo)
+
+
 def main() -> int:
     # Sin `line_buffering` se ve una pantalla en blanco durante los minutos que
     # tardan las descargas, sin saber si avanza.
@@ -74,7 +96,8 @@ def main() -> int:
     print("  después es instantáneo porque quedan en caché.\n")
 
     tareas = [Tarea("modelo del agente", descargar_modelo),
-              Tarea("modelo de embeddings", descargar_embeddings)]
+              Tarea("modelo de embeddings", descargar_embeddings),
+              Tarea("voz en español", descargar_voz)]
     t0 = time.perf_counter()
     for t in tareas:
         t.start()

@@ -24,6 +24,7 @@ from server.knowledge.service import KnowledgeService
 from server.recorder.resumen import construir as construir_resumen
 from server.recorder.store import CallStore
 from server.voz.sesion import SesionLlamada
+from server.voz.tts import crear_tts
 
 
 @asynccontextmanager
@@ -42,8 +43,23 @@ async def lifespan(app: FastAPI):
     app.state.gobernanza = GovernanceStore(settings.governance_db)
     app.state.llamadas = CallStore(settings.calls_db)
     app.state.killswitch = KillSwitch()
+    app.state.tts = crear_tts()
     _abrir_llamada(app)
+
+    # El modelo de voz tarda ~1,2 s en cargar, y con carga perezosa ese retraso
+    # lo paga la PRIMERA frase de la llamada: justo lo primero que oye el
+    # paciente. Se precalienta en segundo plano —`health` sigue respondiendo de
+    # inmediato— para que cuando alguien conteste ya esté listo.
+    async def _precalentar() -> None:
+        try:
+            await asyncio.to_thread(app.state.tts.sintetizar, "Hola.")
+        except Exception:  # noqa: BLE001 — sin voz se sigue igual
+            pass
+
+    tarea = asyncio.create_task(_precalentar())
     yield
+    if not tarea.done():
+        tarea.cancel()
     app.state.knowledge.close()
     app.state.gobernanza.close()
     app.state.llamadas.close()
@@ -85,6 +101,7 @@ async def health() -> dict:
         "llm_ready": modelo["server"] and modelo["model_present"],
         "llm": modelo,
         "embedding_model": k.embedder.name,
+        "voz": app.state.tts.nombre,
         "docs": len(k.documents(include_deleted=False)),
     }
 

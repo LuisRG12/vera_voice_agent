@@ -168,8 +168,13 @@ todo lo que el sistema promete se pueda comprobar.
 
 ## La llamada de voz
 
-El reconocimiento y la síntesis ocurren **en el navegador**: sin claves, sin descargas y sin
-servicios de terceros. Por el WebSocket viaja texto en los dos sentidos.
+**La voz se sintetiza en la máquina** con Piper (`es_MX-claude-high`, 63 MB): suena igual en
+cualquier equipo y nada de lo que dice el agente sale de ahí. Si falta el modelo, se degrada
+a la voz del navegador en vez de fallar.
+
+El **reconocimiento** lo hace el navegador, que envía el audio a su propio servicio. Es una
+limitación conocida y declarada: cerrarla requiere un reconocedor local (~37 MB), y está
+dimensionado en la [bitácora](docs/bitacora.md).
 
 Lo que hace el servidor es devolver **frases en cuanto están cerradas**, no la respuesta
 completa: el paciente empieza a oír mientras el modelo todavía genera. Medido contra el
