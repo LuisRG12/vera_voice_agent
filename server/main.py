@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from pydantic import BaseModel
 
 from server.agent.dialogue import DialogueManager
@@ -21,6 +21,7 @@ from server.governance.store import GovernanceStore
 from server.knowledge.service import KnowledgeService
 from server.recorder.resumen import construir as construir_resumen
 from server.recorder.store import CallStore
+from server.voz.sesion import SesionLlamada
 
 
 @asynccontextmanager
@@ -214,6 +215,24 @@ async def cambiar_parada(body: Parada) -> dict:
     ks = app.state.killswitch
     ks.activar(body.motivo) if body.activo else ks.liberar()
     return ks.snapshot()
+
+
+@app.websocket("/ws/llamada")
+async def llamada_ws(ws: WebSocket) -> None:
+    """La llamada de voz.
+
+    El reconocimiento y la síntesis ocurren en el navegador; por aquí viaja el
+    texto en los dos sentidos. Lo que sí hace el servidor es devolver **frases**
+    en cuanto están cerradas, para que el paciente empiece a oír mientras el
+    modelo todavía genera.
+    """
+    if app.state.killswitch.activo:
+        await ws.accept()
+        await ws.send_json({"type": "error",
+                            "message": f"Agente detenido ({app.state.killswitch.motivo})."})
+        await ws.close()
+        return
+    await SesionLlamada(ws, app.state).atender()
 
 
 @app.get("/")

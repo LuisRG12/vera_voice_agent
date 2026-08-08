@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 8 de 11: alertas con acuse, límites que se aplican y registro auditable.
+Etapa 9 de 11: la llamada de voz, con frases escalonadas e interrupción.
 
 ## Requisitos
 
@@ -120,6 +120,27 @@ evaluaron y la alerta sale igual**. Escalar no depende de que haya un modelo dis
 El léxico (`server/agent/lexicon.py`) son frases planas, no expresiones regulares: añadir
 una forma nueva de decir un síntoma no exige tocar la lógica.
 
+## La llamada de voz
+
+El reconocimiento y la síntesis ocurren **en el navegador**: sin claves, sin descargas y sin
+servicios de terceros. Por el WebSocket viaja texto en los dos sentidos.
+
+Lo que hace el servidor es devolver **frases en cuanto están cerradas**, no la respuesta
+completa: el paciente empieza a oír mientras el modelo todavía genera. Medido contra el
+modelo real, la primera frase llega en **1,2–1,4 s**.
+
+Y la llamada **se puede interrumpir**: si el paciente habla mientras el agente responde, se
+cancela la generación en curso. Sin eso, corregir a un agente que se equivocó exige esperar
+a que termine.
+
+```
+ws://localhost:8000/ws/llamada
+  ->  {"type":"hablar","text":"..."}    lo que dijo el paciente
+  <-  {"type":"frase","text":"..."}     cada frase, en cuanto está lista
+  <-  {"type":"turno", ...}             decisión, citas y estado del turno
+  ->  {"type":"interrumpir"}            corta la generación en curso
+```
+
 ## Gobernanza
 
 Cuando el agente decide alertar, la alerta queda registrada **con su evidencia** —lo que
@@ -152,7 +173,7 @@ uv run python -m evals.suite
 ```
 
 ```
-268/268 comprobaciones en 10 arneses (21 s, sin invocar al modelo).
+283/283 comprobaciones en 11 arneses (29 s, sin invocar al modelo).
 ```
 
 Ninguna invoca al modelo de lenguaje: corren en segundos y dan siempre lo mismo. Cada arnés
@@ -171,6 +192,7 @@ uv run python -m evals.spike_modelo --gpu  # con GPU, para contrastar
 server/agent/       cliente del modelo, diálogo, seguridad, trazabilidad
 server/governance/  alertas, límites por llamada, interruptor de parada
 server/recorder/    registro auditable y resumen de cierre
+server/voz/         sesión de llamada por WebSocket
 server/knowledge/   ingesta, troceado, embeddings, recuperación híbrida, tombstones
 server/             backend (FastAPI)
 scripts/            preparación del entorno y construcción del índice

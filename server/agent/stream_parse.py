@@ -96,13 +96,32 @@ _ENDERS = ".?!…"
 class SentenceSplitter:
     """Acumula fragmentos de texto y entrega frases completas.
 
-    `min_chars` evita cortar en un punto que no cierra una idea —una abreviatura,
-    un decimal— y mandar al sintetizador un jadeo de tres palabras.
+    `min_chars` evita mandar al sintetizador un jadeo de tres palabras cuando el
+    modelo abre con una interjección corta.
     """
 
     def __init__(self, min_chars: int = 25) -> None:
         self.pending = ""
         self.min_chars = min_chars
+
+    def _cierra_frase(self, i: int) -> bool:
+        """¿El signo en la posición `i` termina una frase de verdad?
+
+        Un punto entre dígitos no termina nada: es un decimal. Se observó en una
+        llamada real que la frase «fiebre igual o mayor a 38.5 grados» se partía
+        en «…mayor a 38.» y «5 grados», así que el sintetizador decía «treinta y
+        ocho punto», hacía una pausa, y seguía con «cinco grados». Un umbral
+        clínico leído en dos pedazos es peor que uno leído mal.
+        """
+        if self.pending[i] != ".":
+            return True
+        anterior = self.pending[i - 1] if i > 0 else ""
+        siguiente = self.pending[i + 1] if i + 1 < len(self.pending) else ""
+        # Si todavía no llegó el carácter siguiente, se espera: puede ser un
+        # decimal a medio llegar y cortar aquí sería irreversible.
+        if not siguiente:
+            return False
+        return not (anterior.isdigit() and siguiente.isdigit())
 
     def push(self, delta: str) -> list[str]:
         self.pending += delta
@@ -110,7 +129,7 @@ class SentenceSplitter:
         while True:
             idx = -1
             for i, ch in enumerate(self.pending):
-                if ch in _ENDERS and i + 1 >= self.min_chars:
+                if ch in _ENDERS and i + 1 >= self.min_chars and self._cierra_frase(i):
                     idx = i
                     break
             if idx < 0:

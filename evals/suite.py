@@ -32,6 +32,7 @@ ARNESES = [
     ("evals.dialogo", "lógica del turno; texto y voz se comportan igual"),
     ("evals.trazabilidad", "citas derivadas y auditoría de cifras"),
     ("evals.gobernanza", "alertas, acuse, límites y registro auditable"),
+    ("evals.voz", "frases una a una, interrupción y paridad con texto"),
 ]
 
 # Cada arnés cierra con su propio resumen. Se aceptan las formas que hay en el

@@ -502,3 +502,65 @@ fricción que no aporta nada.
 alerta con su evidencia, una persona acusa recibo, el segundo intento devuelve 409, el
 cierre produce el resumen estructurado, y con la parada activa el turno devuelve 503 con el
 motivo.
+
+---
+
+## Etapa 9 · Voz
+
+### D4 — dónde ocurren el reconocimiento y la síntesis: en el navegador
+
+No es una simplificación, es la opción que **no cuesta ninguna clave, ninguna descarga ni
+ningún servicio de terceros**, y la llamada va por navegador de todos modos.
+
+Con 4,2 GB ya en el reloj del despliegue —modelo del agente y embeddings—, añadir modelos
+de voz locales pondría en riesgo la compuerta de 15 minutos a cambio de una ganancia que no
+se evalúa: el diseño visual y sonoro no puntúa; lo que puntúa es la **latencia** y el
+**comportamiento** de la conversación. Ahí es donde vale la pena gastar el esfuerzo.
+
+Los proveedores server-side —reconocimiento y síntesis de pago— encajan detrás de la misma
+interfaz si algún día compensan. Lo que no se hace es entregarlos sin haberlos podido
+verificar.
+
+### Lo que sí es ingeniería: frases, no respuestas
+
+El servidor devuelve **frases en cuanto están cerradas**, no el turno completo. El paciente
+empieza a oír mientras el modelo todavía genera; esperar al final añadiría segundos de
+silencio a cada intervención.
+
+Medido contra el modelo real por WebSocket: **primera frase a 1,2–1,4 s**.
+
+### Interrupción
+
+Si el paciente habla mientras el agente responde, se cancela la generación en curso y se
+atiende lo nuevo. Sin esto, corregir a un agente que se equivocó exige esperar a que
+termine —que es exactamente lo que hace insoportable hablar con una máquina—.
+
+El arnés lo comprueba de verdad: deja salir un par de frases, cancela, espera de sobra, y
+verifica que **no siguieron llegando**.
+
+### Un umbral clínico partido en dos
+
+Contra el modelo real apareció esto:
+
+```
+[+1240 ms] Avísele a su equipo clínico de inmediato porque presenta fiebre igual o mayor a 38.
+[+1442 ms] 5 grados y salida de material purulento por la incision.
+```
+
+El separador de frases cortó **en el punto decimal**. Un sintetizador diría «treinta y ocho
+punto», haría una pausa, y seguiría con «cinco grados». Un umbral clínico leído en dos
+pedazos es peor que uno leído mal.
+
+Ahora un punto entre dígitos no cierra frase. Y si el carácter siguiente todavía no llegó
+se espera, porque cortar ahí sería irreversible.
+
+**Una expectativa mía que estaba mal, no el código.** Al probarlo asumí que dos frases
+seguidas debían salir como dos emisiones. No: una frase corta que llega después espera por
+`min_chars` y sale al cerrar el turno. Mandar «Puede ducharse.» como emisión propia
+produciría un jadeo de tres palabras en el sintetizador. Se corrigió la prueba.
+
+### Verificado
+
+`evals/voz.py`, 15/15. Y de punta a punta por WebSocket contra el modelo real: las frases
+llegan escalonadas, la pregunta con respuesta cita el protocolo, y el signo de alarma escala
+con `fuente=both` levantando su alerta.
