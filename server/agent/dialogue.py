@@ -52,8 +52,39 @@ _PREGUNTA = re.compile(r"\?|^\s*(?:qu[eé]|c[oó]mo|cu[aá]ndo|cu[aá]nto|d[oó]
                        r"puedo|debo|tengo\s+que|es\s+normal|hay\s+que)\b", re.I)
 
 
+# Fórmulas de cortesía y de canal que llevan signo de interrogación pero no
+# preguntan nada clínico: «hola, ¿cómo está?», «¿me escucha?», «¿aló?».
+#
+# No pretende distinguir un saludo de una pregunta real en general —eso necesita
+# más que una expresión regular—. Es una lista corta y cerrada de fórmulas que en
+# una llamada de seguimiento no pueden significar otra cosa. Cualquier pregunta
+# que además diga algo se sale de la lista y cuenta como pregunta.
+_CORTESIA = re.compile(
+    r"^[\s¿]*(?:(?:hola|buenas|buenos\s+d[ií]as|buenas\s+(?:tardes|noches)|al[oó]|s[ií]|ya|aj[aá])"
+    r"[\s,.!¿?]*)*"
+    r"(?:¿?\s*(?:c[oó]mo\s+(?:est[aá]s?|le\s+va|va|vas)|qu[eé]\s+tal|me\s+(?:escucha|oye)s?|"
+    r"est[aá]s?\s+ah[ií]|hay\s+alguien|qui[eé]n\s+habla|con\s+qui[eé]n\s+hablo)"
+    r"\s*\??)?[\s,.!¿?]*$",
+    re.I)
+
+
+def es_cortesia(texto: str) -> bool:
+    """Saludo o fórmula de canal, aunque venga con signo de interrogación."""
+    return bool(_CORTESIA.match(texto.strip()))
+
+
 def es_pregunta(texto: str) -> bool:
-    return bool(_PREGUNTA.search(texto.strip()))
+    """Pregunta que espera una respuesta con contenido.
+
+    Un saludo con signo de interrogación no lo es. Importa porque `es_pregunta`
+    abre dos puertas: la recuperación de contexto clínico y la ruta segura. Con
+    «hola, ¿cómo está?» el agente recuperaba —no llegó a afirmar nada, pero la
+    puerta quedaba entreabierta— y pagaba una consulta al RAG por una cortesía.
+    """
+    t = texto.strip()
+    if es_cortesia(t):
+        return False
+    return bool(_PREGUNTA.search(t))
 
 
 def necesita_evidencia(texto: str, flags) -> bool:

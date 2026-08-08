@@ -834,3 +834,23 @@ el trabajo que se quitó era trabajo que no había que hacer.
 
 292/292 comprobaciones (nueve nuevas: cuatro del cronómetro, cinco del turno sin contenido
 clínico). `ruff` limpio. Calibración sin cambios: 19/21, mismas dos fugas administrativas.
+
+---
+
+## Residuo cerrado · un saludo no es una pregunta
+
+`es_pregunta` miraba el signo de interrogación, así que *«hola, ¿cómo está?»* contaba como
+pregunta clínica. No llegó a producir contenido sin respaldo —cero citas— pero abría las dos
+puertas que esa función controla: la recuperación de contexto clínico y la ruta segura. Y
+pagaba una consulta al RAG por una cortesía.
+
+**No se intentó distinguir un saludo de una pregunta real en general** —eso necesita más que
+una expresión regular—. Se añadió una lista corta y cerrada de fórmulas que en una llamada de
+seguimiento no pueden significar otra cosa: *«¿cómo está?»*, *«¿me escucha?»*, *«¿aló?»*,
+*«¿con quién hablo?»*. Cualquier pregunta que además diga algo se sale de la lista.
+
+La contraparte es lo que hace la regla defendible: *«hola, ¿desde cuándo me puedo duchar?»*
+empieza igual que un saludo y **sí** recupera. La regla mira la frase entera, no cómo empieza.
+
+**Verificado:** 6 fórmulas de cortesía que no recuperan y 3 turnos clínicos que sí,
+en `evals/dialogo.py`.

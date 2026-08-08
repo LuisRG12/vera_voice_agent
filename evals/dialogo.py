@@ -163,7 +163,12 @@ def main() -> int:
     # fotodocumentación de la válvula ileocecal. Correcto según el corpus y
     # absurdo según la conversación. Recuperar para un turno social le entrega al
     # modelo un contexto clínico que no viene a cuento, y el modelo lo usa igual.
-    for social in ("espere ya voy", "hola, buenos días", "sí, listo"):
+    # Las tres últimas llevan signo de interrogación y aun así son cortesía. Era
+    # un residuo conocido: `es_pregunta` las daba por preguntas, así que abrían la
+    # recuperación —no llegaron a afirmar nada, pero la puerta quedaba
+    # entreabierta— y pagaban una consulta al RAG por un saludo.
+    for social in ("espere ya voy", "hola, buenos días", "sí, listo",
+                   "hola, ¿cómo está?", "buenas, ¿me escucha?", "¿aló?"):
         dm = con_corpus(LLMDoble(cita=1))
         dm.state.procedure = "apendicectomia"
         t = dm.handle_turn(social)
@@ -172,7 +177,10 @@ def main() -> int:
 
     # La contraparte, que es lo que hace la regla defendible: no se trata de
     # exigir signo de pregunta. Un síntoma afirmado en seco es clínico y recupera.
-    for clinico in ("me duele mucho la herida", "tengo fiebre desde anoche"):
+    for clinico in ("me duele mucho la herida", "tengo fiebre desde anoche",
+                    # Empieza igual que un saludo y sí es una pregunta clínica:
+                    # la regla mira la frase entera, no cómo empieza.
+                    "hola, ¿desde cuándo me puedo duchar?"):
         dm = con_corpus(LLMDoble(cita=1))
         dm.state.procedure = "apendicectomia"
         t = dm.handle_turn(clinico)
