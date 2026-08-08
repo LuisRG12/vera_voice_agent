@@ -442,3 +442,63 @@ se prueba contra lo que escribe de verdad, no contra lo que convendría que escr
 
 De punta a punta: los dos turnos con contenido clínico citan el protocolo, `grounding=ok`,
 y el signo de alarma escala con `fuente=both`.
+
+---
+
+## Etapa 8 · Gobernanza
+
+### La alerta se cierra con una persona, o no se cerró
+
+Una alerta clínica no se «resuelve» borrándola: se acusa recibo, y queda **quién** lo hizo
+y **cuándo**. El registro es append-only porque si se pudiera editar no serviría para
+reconstruir qué supo el equipo clínico y en qué momento —que es exactamente lo que hay que
+poder responder cuando algo sale mal—.
+
+No se puede acusar dos veces: el primer acuse es el que cuenta, y sobrescribirlo borraría
+quién la atendió realmente.
+
+**La evidencia viaja con la alerta**: lo que dijo el paciente, qué reglas dispararon, en qué
+turno y qué documentos lo sustentan. Una alerta sin su porqué obliga a quien la recibe a
+reconstruirla a mano, que es justo lo que no se puede pedir en un contexto clínico.
+
+### Los límites se aplican, no solo se anuncian
+
+Anunciar un tope y seguir aceptando turnos es **peor** que no tenerlo, porque da una falsa
+sensación de control. El presupuesto por llamada —turnos y duración— se comprueba antes de
+cada turno y devuelve 409 cuando se pasó.
+
+Y lo que se le dice al paciente nunca es «se acabó el presupuesto»: se cierra con cortesía
+y con la promesa —cumplida— de que su equipo va a recibir el reporte.
+
+**El interruptor de parada no corta llamadas en curso.** Dejar a un paciente con la palabra
+en la boca sería peor que el motivo por el que se activó; lo que impide es abrir nuevas.
+
+### El resumen de cierre lo arma el código, no el modelo
+
+Se construye desde el estado de la llamada y los turnos registrados, así que **no puede
+inventar** un síntoma que nadie reportó ni una decisión que no se tomó. Contiene lo que hay
+que poder responder después de colgar: procedimiento y día, síntomas, signos de alarma,
+riesgo máximo, referencias usadas, observaciones de la auditoría de cifras y próximos pasos.
+
+Es el mismo principio de toda la aplicación: el código produce el dato duro; si el modelo
+interviene es para redactarlo, nunca para decidirlo.
+
+### Un comando en vez de nueve
+
+`evals/suite.py` corre todos los arneses y **cuenta las comprobaciones leyendo el resumen de
+cada uno**, no sumándolas a mano: un número escrito a mano en un README se queda viejo el
+día que alguien añade un caso, y un número viejo es peor que ninguno.
+
+```
+268/268 comprobaciones en 10 arneses (21 s, sin invocar al modelo).
+```
+
+Quien evalúe esto tiene tiempo limitado; obligarlo a recorrer una lista de comandos es
+fricción que no aporta nada.
+
+### Verificado
+
+`evals/gobernanza.py`, 32/32. Y el ciclo completo por HTTP: el signo de alarma levanta la
+alerta con su evidencia, una persona acusa recibo, el segundo intento devuelve 409, el
+cierre produce el resumen estructurado, y con la parada activa el turno devuelve 503 con el
+motivo.

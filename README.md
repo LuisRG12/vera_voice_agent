@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 7 de 11: cada afirmación clínica se puede rastrear hasta el documento que la sustenta.
+Etapa 8 de 11: alertas con acuse, límites que se aplican y registro auditable.
 
 ## Requisitos
 
@@ -120,21 +120,43 @@ evaluaron y la alerta sale igual**. Escalar no depende de que haya un modelo dis
 El léxico (`server/agent/lexicon.py`) son frases planas, no expresiones regulares: añadir
 una forma nueva de decir un síntoma no exige tocar la lógica.
 
+## Gobernanza
+
+Cuando el agente decide alertar, la alerta queda registrada **con su evidencia** —lo que
+dijo el paciente, qué reglas dispararon, qué documentos lo sustentan— y solo se cierra
+cuando **una persona acusa recibo**. Sin eso, «el sistema alertó» es una afirmación que
+nadie puede verificar.
+
+```bash
+curl http://localhost:8000/api/alertas
+curl -X POST http://localhost:8000/api/alertas/1/acuse   -H "Content-Type: application/json" -d '{"who":"Dra. Gómez","note":"contactada"}'
+
+curl -X POST http://localhost:8000/api/llamada/colgar    # cierra y devuelve el resumen
+curl http://localhost:8000/api/llamadas/1                # registro completo de la llamada
+
+curl -X POST http://localhost:8000/api/parada   -H "Content-Type: application/json" -d '{"activo":true,"motivo":"revisión"}'
+```
+
+El presupuesto por llamada y el interruptor de parada **se aplican**: un límite anunciado y
+no aplicado es peor que no tenerlo. La parada impide abrir llamadas nuevas, pero no corta
+las que están en curso — dejar a un paciente con la palabra en la boca sería peor que el
+motivo por el que se activó.
+
+El resumen de cierre lo arma el código desde los datos registrados, no el modelo: no puede
+inventar un síntoma que nadie reportó.
+
 ## Pruebas
 
 ```bash
-uv run python -m evals.conocimiento_vivo             # 10/10 · ingesta, versionado y olvido
-uv run python -m evals.pertinencia_procedimiento     # 13/13 · la recuperación no cruza cirugías
-uv run python -m evals.alarmas_base                  # 10/10 · signos de alarma, casos base
-uv run python -m evals.alarmas_adversariales         # 16/16 · casos diseñados para romper las reglas
-uv run python -m evals.lexico_colombiano             # 85/85 · léxico clínico y sus trampas
-uv run python -m evals.decision_seguridad            # 16/16 · la decisión sobrevive al modelo caído
-uv run python -m evals.deteccion_procedimiento       # 33/33 · el procedimiento, en habla de paciente
-uv run python -m evals.dialogo                       # 19/19 · lógica del turno, texto y voz iguales
-uv run python -m evals.trazabilidad                  # 30/30 · citas derivadas y auditoría de cifras
+uv run python -m evals.suite
 ```
 
-No invocan ningún modelo de lenguaje: corren en segundos y siempre dan lo mismo.
+```
+268/268 comprobaciones en 10 arneses (21 s, sin invocar al modelo).
+```
+
+Ninguna invoca al modelo de lenguaje: corren en segundos y dan siempre lo mismo. Cada arnés
+se puede correr suelto (`uv run python -m evals.trazabilidad`, etc.).
 
 La comparativa que eligió el modelo sí lo invoca, y tarda:
 
@@ -146,7 +168,9 @@ uv run python -m evals.spike_modelo --gpu  # con GPU, para contrastar
 ## Estructura
 
 ```
-server/agent/       cliente del modelo, esquemas de salida, lectura incremental
+server/agent/       cliente del modelo, diálogo, seguridad, trazabilidad
+server/governance/  alertas, límites por llamada, interruptor de parada
+server/recorder/    registro auditable y resumen de cierre
 server/knowledge/   ingesta, troceado, embeddings, recuperación híbrida, tombstones
 server/             backend (FastAPI)
 scripts/            preparación del entorno y construcción del índice

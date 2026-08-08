@@ -42,5 +42,9 @@ class Settings(BaseSettings):
     # corpus real). Un valor provisional es honesto mientras se declare como tal.
     min_evidence: float = 0.55
 
+    # --- Persistencia ---
+    governance_db: str = "vera_governance.db"
+    calls_db: str = "vera_calls.db"
+
 
 settings = Settings()

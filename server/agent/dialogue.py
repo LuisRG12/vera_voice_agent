@@ -34,6 +34,7 @@ from server.agent.schemas import AgentTurn, RiskAssessment, grounded_response_fo
 from server.agent.seguridad import assess_risk, combinar, formatear_fragmentos
 from server.agent.state import CHECKLIST, CallState, update_slots_from_text
 from server.agent.stream_parse import SentenceSplitter
+from server.governance.limits import CallBudget
 
 # Presupuesto de contexto en caracteres. No basta con un `k` fijo de fragmentos:
 # el tamaño de un fragmento varía mucho entre un instructivo de paciente y un
@@ -67,10 +68,35 @@ def recortar_evidencia(cites, max_chars: int = MAX_CHARS_EVIDENCIA):
 
 
 class DialogueManager:
-    def __init__(self, knowledge, llm: StructuredLLM | None = None):
+    def __init__(self, knowledge, llm: StructuredLLM | None = None,
+                 governance=None, call_id: int | None = None):
         self.k = knowledge
         self.llm = llm or StructuredLLM()
         self.state = CallState()
+        self.gov = governance
+        self.call_id = call_id
+        self.budget = CallBudget()
+
+    def _alertar(self, turn: AgentTurn, user_text: str) -> None:
+        """Levanta la alerta al equipo clínico cuando la decisión lo amerita.
+
+        Va en `_cerrar` y no en cada ruta: es lo único por lo que pasan las dos.
+        La evidencia se guarda junto a la alerta —lo que dijo el paciente, qué
+        reglas dispararon, qué la justifica— porque una alerta sin su porqué
+        obliga a quien la recibe a reconstruirla a mano.
+        """
+        if self.gov is None or turn.decision.risk not in ("high", "critical"):
+            return
+        try:
+            alert_id = self.gov.raise_alert(
+                self.call_id, turn.decision.risk, turn.decision.rationale,
+                {"dijo_el_paciente": user_text,
+                 "reglas": turn.decision.rule_flags,
+                 "turno": self.state.turn_count,
+                 "citas": turn.citations})
+            turn.governance = {"alert_id": alert_id}
+        except Exception as exc:  # noqa: BLE001 — una alerta fallida no tumba el turno
+            turn.governance = {"alert_error": str(exc)}
 
     # ---------------------------------------------------------------- comunes
     def _preparar(self, user_text: str) -> tuple[list, str]:
@@ -166,7 +192,7 @@ class DialogueManager:
             st.phase = "escalamiento"
 
         usados = [c for c in cites if c.chunk_id in set(citation_ids)]
-        return AgentTurn(
+        turno = AgentTurn(
             utterance=utterance,
             has_evidence=bool(citation_ids),
             citations=[{"chunk_id": c.chunk_id, "doc_name": c.doc_name, "section": c.section}
@@ -178,6 +204,12 @@ class DialogueManager:
             usage=usage,
             latency_ms=lat,
         )
+        self.budget.registrar_turno()
+        self._alertar(turno, user_text)
+        turno.governance.setdefault("presupuesto", self.budget.snapshot())
+        if motivo := self.budget.excedido():
+            turno.governance["limite_excedido"] = motivo
+        return turno
 
     def _turno_degradado(self, flags, lat: dict, exc: Exception | None) -> AgentTurn:
         """Turno seguro cuando el modelo no responde.

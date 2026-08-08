@@ -102,6 +102,8 @@ class AgentTurn(BaseModel):
     state: dict = Field(default_factory=dict)
     usage: dict = Field(default_factory=dict)
     latency_ms: dict = Field(default_factory=dict)
+    # Alerta levantada, presupuesto de la llamada y límites excedidos.
+    governance: dict = Field(default_factory=dict)
 
 
 class RiskAssessment(BaseModel):

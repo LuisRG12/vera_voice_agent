@@ -16,7 +16,11 @@ from pydantic import BaseModel
 from server.agent.dialogue import DialogueManager
 from server.agent.llm import probe
 from server.config import settings
+from server.governance.limits import MENSAJE_LIMITE, KillSwitch
+from server.governance.store import GovernanceStore
 from server.knowledge.service import KnowledgeService
+from server.recorder.resumen import construir as construir_resumen
+from server.recorder.store import CallStore
 
 
 @asynccontextmanager
@@ -24,9 +28,23 @@ async def lifespan(app: FastAPI):
     # En memoria: la sesión de demostración empieza limpia y lo que se suba
     # durante ella no se arrastra a la siguiente.
     app.state.knowledge = KnowledgeService(db_path=":memory:")
-    app.state.dialogo = DialogueManager(app.state.knowledge)
+    app.state.gobernanza = GovernanceStore(settings.governance_db)
+    app.state.llamadas = CallStore(settings.calls_db)
+    app.state.killswitch = KillSwitch()
+    _abrir_llamada(app)
     yield
     app.state.knowledge.close()
+    app.state.gobernanza.close()
+    app.state.llamadas.close()
+
+
+def _abrir_llamada(app: FastAPI) -> None:
+    """Abre una llamada nueva y engancha el diálogo a su registro."""
+    call_id = app.state.llamadas.open_call()
+    app.state.call_id = call_id
+    app.state.turno_idx = 0
+    app.state.dialogo = DialogueManager(
+        app.state.knowledge, governance=app.state.gobernanza, call_id=call_id)
 
 
 app = FastAPI(title="Vera", lifespan=lifespan)
@@ -105,14 +123,97 @@ async def turno(body: TurnoPaciente) -> dict:
     voz de por medio. Cuando algo suene mal en una llamada, aquí se puede
     reproducir el turno exacto.
     """
+    if app.state.killswitch.activo:
+        raise HTTPException(
+            status_code=503,
+            detail=f"El agente está detenido por un operador ({app.state.killswitch.motivo}).")
+
     dm = app.state.dialogo
+    # El límite no solo se anuncia: se aplica. Anunciarlo y seguir aceptando
+    # turnos es peor que no tenerlo, porque da una falsa sensación de control.
+    if motivo := dm.budget.excedido():
+        raise HTTPException(status_code=409, detail=MENSAJE_LIMITE[motivo])
+
     t = await asyncio.to_thread(dm.handle_turn, body.text)
+    app.state.turno_idx += 1
+    await asyncio.to_thread(app.state.llamadas.record_turn,
+                            app.state.call_id, app.state.turno_idx, body.text, t)
     return t.model_dump()
 
 
 @app.get("/api/llamada/estado")
 async def estado_llamada() -> dict:
-    return app.state.dialogo.state.snapshot()
+    return {**app.state.dialogo.state.snapshot(),
+            "call_id": app.state.call_id,
+            "presupuesto": app.state.dialogo.budget.snapshot()}
+
+
+@app.post("/api/llamada/colgar")
+async def colgar() -> dict:
+    """Cierra la llamada con su resumen y abre una nueva."""
+    detalle = app.state.llamadas.call_detail(app.state.call_id)
+    resumen = construir_resumen(app.state.dialogo.state, detalle["turns"] if detalle else [])
+    app.state.llamadas.close_call(app.state.call_id, resumen)
+    cerrada = app.state.call_id
+    _abrir_llamada(app)
+    return {"call_id": cerrada, "resumen": resumen, "nueva_llamada": app.state.call_id}
+
+
+@app.get("/api/llamadas")
+async def listar_llamadas() -> dict:
+    return {"llamadas": [c.__dict__ for c in app.state.llamadas.calls()]}
+
+
+@app.get("/api/llamadas/{call_id}")
+async def detalle_llamada(call_id: int) -> dict:
+    if (d := app.state.llamadas.call_detail(call_id)) is None:
+        raise HTTPException(status_code=404, detail="llamada no encontrada")
+    return d
+
+
+@app.get("/api/alertas")
+async def listar_alertas(solo_activas: bool = False) -> dict:
+    return {"alertas": [a.__dict__ | {"activa": a.activa}
+                        for a in app.state.gobernanza.alerts(solo_activas)]}
+
+
+class Acuse(BaseModel):
+    who: str
+    note: str = ""
+
+
+@app.post("/api/alertas/{alert_id}/acuse")
+async def acusar(alert_id: int, body: Acuse) -> dict:
+    """Cierra el ciclo con una persona.
+
+    Sin acuse, «el sistema alertó» es una afirmación que nadie puede verificar.
+    No se puede acusar dos veces: el primer acuse es el que cuenta.
+    """
+    if not app.state.gobernanza.ack(alert_id, body.who, body.note):
+        raise HTTPException(status_code=409, detail="la alerta no existe o ya fue acusada")
+    return {"alert_id": alert_id, "acusada_por": body.who}
+
+
+class Parada(BaseModel):
+    activo: bool
+    motivo: str = ""
+
+
+@app.get("/api/parada")
+async def ver_parada() -> dict:
+    return app.state.killswitch.snapshot()
+
+
+@app.post("/api/parada")
+async def cambiar_parada(body: Parada) -> dict:
+    """Interruptor de parada: impide abrir llamadas nuevas.
+
+    Las llamadas en curso NO se cortan a mitad de frase: dejar a un paciente con
+    la palabra en la boca sería peor que el motivo por el que se activó.
+    """
+    ks = app.state.killswitch
+    ks.activar(body.motivo) if body.activo else ks.liberar()
+    return ks.snapshot()
 
 
 @app.get("/")
