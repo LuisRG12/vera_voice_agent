@@ -28,7 +28,9 @@ JUEZ_SYSTEM = """Evalúas el riesgo clínico de lo que reporta un paciente reci�
 - low: molestia esperable del postoperatorio.
 - none: sin síntoma de riesgo.
 
-Usa los umbrales del PROTOCOLO cuando lo entregado los tenga. Ante duda, SUBE el nivel; nunca lo bajes."""
+Usa los umbrales del PROTOCOLO cuando lo entregado los tenga. Ante duda, SUBE el nivel; nunca lo bajes.
+
+Si el analizador de texto no detectó ninguna señal, solo asigna high o critical cuando el paciente describa un síntoma concreto que el analizador pudo haberse perdido. Mencionar la cirugía, saludar o preguntar algo no es un síntoma."""
 
 
 def formatear_fragmentos(cites) -> str:
@@ -37,9 +39,24 @@ def formatear_fragmentos(cites) -> str:
     return "\n".join(f"[#{c.chunk_id} | {c.doc_name} §{c.section}] {c.text}" for c in cites)
 
 
-def assess_risk(llm: StructuredLLM, user_text: str, cites) -> tuple[RiskAssessment, dict]:
-    """Capa B. Devuelve (valoración, consumo de tokens)."""
+def assess_risk(llm: StructuredLLM, user_text: str, cites,
+                flags: list[RuleFlag] | None = None) -> tuple[RiskAssessment, dict]:
+    """Capa B. Devuelve (valoración, consumo de tokens).
+
+    Se le dice al juez **qué vio la capa determinista**, y no por ahorrarle
+    trabajo: sin ese dato clasificaba `high` un saludo —«me sacaron el apéndice
+    hace dos días»—, visto en el registro de una llamada real. Va en la dirección
+    conservadora, que en clínica es la correcta, pero genera ruido operativo: una
+    alerta por un saludo hace que el equipo empiece a ignorarlas, y una alerta
+    que se ignora no sirve para nada.
+
+    Saberlo no le impide escalar por su cuenta —para eso está la capa B, para ver
+    lo que las reglas no ven—, pero le exige que haya algo concreto que lo
+    justifique.
+    """
+    detectado = (", ".join(sorted({f.name for f in flags})) if flags else "nada")
     user = (f"PROTOCOLO:\n{formatear_fragmentos(cites)}\n\n"
+            f"SEÑALES QUE DETECTÓ EL ANALIZADOR DE TEXTO: {detectado}\n\n"
             f"PACIENTE: {user_text}\n\nClasifica el riesgo.")
     # Con margen: el esquema ya acota la longitud de los campos, pero un
     # `rationale` legítimamente largo no debe truncar el JSON y tumbar el turno.

@@ -19,6 +19,22 @@ import numpy as np
 
 from server.db import connect, serialized
 
+# Los vectores se guardan en media precisión. El corpus entregado son 10.955
+# fragmentos de 1.024 dimensiones: en `float32` el índice pesa 51 MB —por encima
+# del límite recomendado de GitHub— y ocupa 44 MB de RAM, porque al arrancar se
+# copia entero a memoria.
+#
+# Medido antes de aplicarlo, sobre el corpus real y 200 consultas: el mayor
+# cambio en `max_dense` —la cifra que compara el umbral D3— es 4e-07. El umbral
+# se decide con granularidad de 0.01, cuatro órdenes de magnitud por encima, así
+# que la decisión de responder o abstenerse no cambia en ningún caso.
+#
+# `float16` y no `int8` (que pesaría la mitad) porque int8 mueve `max_dense`
+# 2e-04, sigue siendo seguro pero exige guardar escala por vector y defender un
+# número que ya no es despreciable. La mitad del tamaño, gratis y sin efecto
+# medible, es donde está la relación buena.
+ALMACEN_VECTOR = np.float16
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,6 +89,14 @@ class DocumentInfo:
 class KnowledgeStore:
     def __init__(self, db_path: str = "vera_knowledge.db", plantilla: str | None = None):
         self._db, self._lock = connect(db_path, plantilla)
+        # Una fila de `chunks` mide ~2,7 KB (vector + texto). Con páginas de
+        # 4 KB —el defecto— cada fila se desborda a una página propia que queda
+        # a medio llenar, y el índice del corpus pesa 45 MB en vez de 32. Con
+        # 2 KB el desperdicio cae al 10% y leer los 10.955 fragmentos cuesta
+        # 7 ms más por consulta; con 1 KB o menos se ahorra 1 MB y se pagan 50.
+        # Solo surte efecto en una base recién creada: es donde importa, porque
+        # es la que produce `scripts/corpus.py` al reconstruir el índice.
+        self._db.execute("PRAGMA page_size=2048")
         self._db.executescript(SCHEMA)
         self._db.commit()
 
@@ -102,7 +126,7 @@ class KnowledgeStore:
             cur.execute(
                 "INSERT INTO chunks(doc_id,ordinal,section,text,embedding,created_at) "
                 "VALUES(?,?,?,?,?,?)",
-                (doc_id, i, section, text, emb.astype(np.float32).tobytes(), now),
+                (doc_id, i, section, text, emb.astype(ALMACEN_VECTOR).tobytes(), now),
             )
         self._db.commit()
         return doc_id
@@ -139,7 +163,11 @@ class KnowledgeStore:
             ActiveChunk(
                 r["chunk_id"], r["doc_id"], r["doc_name"], r["doc_version"],
                 r["section"] or "", r["text"],
-                np.frombuffer(r["embedding"], dtype=np.float32),
+                # Vista sobre el blob, sin copia: `active_chunks` corre en cada
+                # consulta y convertir aquí los 10.955 vectores costaría una
+                # asignación de memoria por turno. La promoción a float32 se
+                # hace una sola vez, sobre la matriz ya apilada, en el retriever.
+                np.frombuffer(r["embedding"], dtype=ALMACEN_VECTOR),
                 r["procedure"],
             )
             for r in rows

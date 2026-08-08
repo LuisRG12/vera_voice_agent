@@ -28,9 +28,17 @@ from server.voz.sesion import SesionLlamada
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # En memoria: la sesión de demostración empieza limpia y lo que se suba
-    # durante ella no se arrastra a la siguiente.
-    app.state.knowledge = KnowledgeService(db_path=":memory:")
+    # El índice del corpus se copia a memoria al arrancar: la sesión empieza con
+    # los 105 documentos disponibles y a la vez limpia, sin arrastrar lo que se
+    # subió en la ejecución anterior. Si falta, se arranca vacío con un aviso en
+    # vez de fallar: un servidor que no levanta es peor que uno que declara su
+    # límite, y la consola sigue permitiendo cargar documentos.
+    corpus = Path(__file__).resolve().parent.parent / "corpus_reto.db"
+    if not corpus.exists():
+        print(f"[!] No se encontró {corpus.name}: el agente arranca sin corpus clínico.")
+        print("    Reconstrúyalo con:  uv run scripts/corpus.py --ruta <dataset/textos>")
+    app.state.knowledge = KnowledgeService(
+        db_path=":memory:", plantilla=str(corpus) if corpus.exists() else None)
     app.state.gobernanza = GovernanceStore(settings.governance_db)
     app.state.llamadas = CallStore(settings.calls_db)
     app.state.killswitch = KillSwitch()

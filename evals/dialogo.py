@@ -134,9 +134,19 @@ def main() -> int:
           str(t.citations))
 
     print("\n== Una pregunta sin evidencia no se responde de memoria ==")
+    # La pregunta es deliberadamente ajena al dominio clínico. Este arnés monta un
+    # corpus de UN documento, y ahí el umbral no significa lo mismo que contra el
+    # corpus real: sin nada con qué contrastar, cualquier pregunta postoperatoria
+    # plausible puntúa alto contra el único protocolo cargado. Se comprobó:
+    # «¿me puedo hacer un tatuaje?» da 0.831 con un documento y queda por debajo
+    # del umbral con los 105 del corpus entregado.
+    #
+    # Calibrar el umbral es trabajo de `evals/calibracion.py`, que corre contra
+    # el corpus real. Lo que se prueba AQUÍ es la lógica del turno: que sin
+    # evidencia se toma la ruta segura.
     dm = con_corpus(LLMDoble())
     dm.state.procedure = "apendicectomia"
-    t = dm.handle_turn("¿me puedo hacer un tatuaje la próxima semana?")
+    t = dm.handle_turn("¿cuál es la clave del wifi del hospital?")
     check("toma la ruta segura", t.grounding_flag == "sin_evidencia", t.grounding_flag)
     check("y ofrece avisar al equipo", "equipo clínico" in t.utterance, t.utterance)
 

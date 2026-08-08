@@ -66,7 +66,10 @@ class HybridRetriever:
         if not rows:
             return []
         qvec = self.embedder.embed_one(text)
-        mat = np.stack([r.embedding for r in rows])
+        # Los vectores se guardan en media precisión (ver `ALMACEN_VECTOR`); el
+        # coseno se calcula en float32. Media precisión ahorra disco y memoria,
+        # pero acumularía error en el producto de 1.024 términos.
+        mat = np.stack([r.embedding for r in rows]).astype(np.float32)
         dense = _cosine(mat, qvec)
 
         bm = BM25Okapi([_tok(r.text) for r in rows])

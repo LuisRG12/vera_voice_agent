@@ -8,9 +8,18 @@ __pycache__/
 .ruff_cache/
 
 # Bases de datos locales de ejecución (llamadas, gobernanza, conocimiento).
-# La del corpus clínico es la excepción y se declara más abajo cuando exista.
 *.db
 *.sqlite3
+
+# Excepción deliberada: el índice del corpus clínico SÍ se entrega, ya
+# construido. Reconstruirlo toma más de una hora, que no cabe en la compuerta de
+# despliegue junto a las descargas. Con el índice hecho, quien clone arranca en
+# segundos; `scripts/corpus.py` queda para reproducirlo desde los documentos
+# originales y comprobar que no hubo curaduría a mano.
+#
+# Los PDFs no se redistribuyen: son obra de sus autores. Lo que se versiona es el
+# índice, que es el artefacto que la solución necesita para funcionar.
+!corpus_reto.db
 
 # Audio generado en pruebas
 *.wav

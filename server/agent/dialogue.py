@@ -240,7 +240,7 @@ class DialogueManager:
         if (segura := self._ruta_segura(user_text, q)) is not None:
             respuesta, marca = segura
             try:
-                ra, uso = assess_risk(self.llm, user_text, cites)
+                ra, uso = assess_risk(self.llm, user_text, cites, flags)
             except LLMError:
                 ra, uso = None, {"input_tokens": 0, "output_tokens": 0}
             lat["modelo_ms"] = round((time.perf_counter() - t1) * 1000)
@@ -250,7 +250,7 @@ class DialogueManager:
         try:
             with ThreadPoolExecutor(max_workers=2) as ex:
                 f_resp = ex.submit(self._responder, user_text, cites, objetivo)
-                f_juez = ex.submit(assess_risk, self.llm, user_text, cites)
+                f_juez = ex.submit(assess_risk, self.llm, user_text, cites, flags)
                 resp, uso_resp = f_resp.result()
                 ra, uso_juez = f_juez.result()
         except Exception as exc:  # noqa: BLE001 — se degrada, no se propaga
@@ -285,7 +285,8 @@ class DialogueManager:
         cites, q = self._recuperar(user_text)
         lat = {"recuperacion_ms": round((time.perf_counter() - t0) * 1000)}
 
-        juez = asyncio.create_task(asyncio.to_thread(assess_risk, self.llm, user_text, cites))
+        juez = asyncio.create_task(
+            asyncio.to_thread(assess_risk, self.llm, user_text, cites, flags))
         t1 = time.perf_counter()
 
         if (segura := self._ruta_segura(user_text, q)) is not None:

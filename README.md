@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 10 de 11: consola de administración e interfaz de llamada.
+Completo. Calibrado contra el corpus real y con las métricas medidas.
 
 ## Requisitos
 
@@ -62,15 +62,43 @@ curl -X DELETE http://localhost:8000/api/knowledge/1
 
 Formatos admitidos: `.md`, `.txt`, `.pdf`, `.docx`.
 
+## Métricas de operación
+
+Medidas con `uv run python -m evals.metricas` sobre una llamada representativa —apertura,
+preguntas con respuesta, una fuera de corpus y un signo de alarma—, no solo los casos
+fáciles.
+
+| Métrica | Valor |
+|---|---|
+| **Latencia** (fin de habla → primera frase hablable) | **P50 1.640 ms** · P95 2.058 ms |
+| Turno completo | P50 3.088 ms |
+| Tokens por turno | 2.993 entrada / 104 salida |
+| Tokens por llamada (6 turnos) | 15.067 entrada / 573 salida |
+| **Invocaciones al modelo por turno** | 2 (respuesta y juez de riesgo, en paralelo) |
+| **Consultas al RAG por llamada** | 6 (una por turno) |
+| **Costo de API por llamada** | **$0** — el modelo corre local |
+| Costo equivalente si se pagara API | $0,0016 a $0,10/MTok (referencia declarada) |
+
+La latencia se mide hasta la **primera frase hablable**, no hasta el turno completo: el
+agente habla por frases mientras el modelo sigue generando. Los turnos que toman la ruta
+segura responden en ~250 ms, porque no generan nada.
+
+El costo real de API es cero. La extrapolación existe para que la cifra sea comparable con
+soluciones que sí pagan por token, y el precio de referencia está declarado en el arnés.
+
 ## El corpus clínico
 
 Los documentos del reto **no se redistribuyen aquí**: son obra de sus autores y el material
 oficial los incluye solo como referencia. Este repositorio trae el script que construye el
 índice a partir de ellos.
 
+**El índice ya viene construido** (`corpus_reto.db`, 105 documentos): reconstruirlo toma más
+de una hora y no cabe en el reloj del despliegue. El script queda para reproducirlo y
+comprobar que no hubo curaduría a mano.
+
 ```bash
 uv run scripts/corpus.py --ruta <repo-del-reto>/dataset/textos --revisar   # informa
-uv run scripts/corpus.py --ruta <repo-del-reto>/dataset/textos            # construye
+uv run scripts/corpus.py --ruta <repo-del-reto>/dataset/textos            # reconstruye
 ```
 
 La ingesta reporta lo que encuentra en vez de tragárselo: PDFs sin capa de texto,
@@ -197,12 +225,18 @@ uv run python -m evals.suite
 Ninguna invoca al modelo de lenguaje: corren en segundos y dan siempre lo mismo. Cada arnés
 se puede correr suelto (`uv run python -m evals.trazabilidad`, etc.).
 
-La comparativa que eligió el modelo sí lo invoca, y tarda:
+Las que invocan al modelo o miden contra el corpus completo se corren aparte, y tardan:
 
 ```bash
-uv run python -m evals.spike_modelo        # CPU pura (el escenario que decide)
-uv run python -m evals.spike_modelo --gpu  # con GPU, para contrastar
+uv run python -m evals.calibracion            # 19/21 · el agente sabe cuándo callar
+uv run python -m evals.calibracion --barrido  # cómo se mueven los dos errores
+uv run python -m evals.metricas               # las métricas de arriba, medidas
+uv run python -m evals.spike_modelo           # la comparativa que eligió el modelo
+uv run python -m evals.spike_embeddings       # la que eligió los embeddings
 ```
+
+**Las decisiones del proyecto salieron de estos arneses**, no de preferencias: qué modelo,
+qué embeddings y dónde va el umbral están medidos y son reproducibles.
 
 ## Estructura
 

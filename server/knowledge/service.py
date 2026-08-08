@@ -93,7 +93,8 @@ class KnowledgeService:
         qwords = _content_words(text)
         lexical = max((len(qwords & _content_words(c.text)) for c in citations[:3]), default=0)
         return {
-            "has_evidence": max_dense >= self.min_evidence or lexical >= 2,
+            "has_evidence": (max_dense >= self.min_evidence
+                             or lexical >= settings.min_lexico),
             "max_dense": max_dense,
             "lexical_overlap": lexical,
             "citations": citations,

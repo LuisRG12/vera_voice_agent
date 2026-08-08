@@ -617,3 +617,147 @@ Va en la dirección conservadora, que es la correcta en clínica, pero **genera 
 operativo**: una alerta por un saludo hace que el equipo empiece a ignorarlas, y una alerta
 que se ignora no sirve. Queda anotado como material de la etapa 11: el juez necesita ver que
 la capa determinista no vio nada y ser más exigente en ese caso.
+
+---
+
+## Etapa 11 · Calibración
+
+### D2 — `multilingual-e5-large`, elegido por SEPARACIÓN
+
+La métrica correcta no es la similitud media: es cuánto separa las preguntas que el corpus
+responde de las que no. Un modelo que puntúa alto en todo no sirve, porque no permite
+decidir cuándo abstenerse — y **saber cuándo callar es la mitad del trabajo** en un agente
+clínico.
+
+Por eso se mide **AUC**: la probabilidad de que una pregunta respondible puntúe por encima
+de una ajena. No depende de dónde se ponga el umbral, que es justo lo que hay que saber
+*antes* de elegirlo.
+
+| modelo | AUC | F1 | rechazos falsos | afirmaciones falsas | recuperación |
+|---|---:|---:|---:|---:|---:|
+| paraphrase-MiniLM *(el que había)* | 0.94 | 0.89 | 0 | 3 | 11/12 |
+| paraphrase-mpnet | 0.90 | 0.91 | 2 | 0 | 11/12 |
+| **multilingual-e5-large** | **1.00** | **1.00** | **0** | **0** | **12/12** |
+
+La causa es de fondo: los dos primeros son modelos de **paráfrasis** —miden si dos textos
+se parecen— y e5 está entrenado para **recuperación** —si uno responde al otro—. De ahí que
+`Embedder` distinga `query` de `passage`; sin esos prefijos, e5 rinde por debajo de lo que
+puede.
+
+Cuesta 2,24 GB de descarga y 59 ms por consulta, frente a 0,22 GB y 9 ms. Los 59 ms caben
+de sobra en un turno de ~1,6 s; la descarga se paraleliza con la del modelo.
+
+### D3 — y un error de método que costó descubrir
+
+Con la muestra de 30 documentos, e5 daba **separación perfecta** y el umbral parecía obvio:
+0.81, justo en el hueco entre [0.816..0.842] y [0.772..0.806].
+
+**Contra el corpus completo, no.** Las preguntas ajenas subieron a 0.818–0.832 y el
+resultado cayó a 17/21. La razón es simple una vez vista: **cuantos más fragmentos hay, más
+oportunidades de que alguno caiga cerca por azar**. El máximo de una distribución crece con
+el tamaño de la muestra, y `max_dense` es exactamente eso.
+
+Calibrar sobre una muestra **sobreestima la separación**. Se recalibró sobre los 105
+documentos que se entregan:
+
+| umbral | léxico | responde bien | se abstiene bien | rechazos falsos | afirmaciones falsas |
+|---:|---:|---:|---:|---:|---:|
+| 0.81 | 2 | 12/12 | 5/9 | 0 | 4 |
+| **0.82** | **2** | **12/12** | **7/9** | **0** | **2** |
+| 0.82 | 3 | 11/12 | 8/9 | 1 | 1 |
+| 0.83 | 3 | 9/12 | 9/9 | 3 | 0 |
+
+**Se elige 0.82 con léxico ≥ 2.** Cero rechazos falsos significa que el RAG responde todas
+las preguntas legítimas —lo contrario sería no haber construido el RAG—, y las dos fugas
+son administrativas: *«¿cuánto cuesta la consulta?»* y *«¿puedo viajar en avión?»*. Ninguna
+es clínica, y las dos quedan cubiertas por las capas de abajo: la cita se deriva de la
+evidencia y las cifras se auditan contra su fuente.
+
+**El umbral no transfiere.** Ni entre modelos de embeddings —con el anterior el bueno era
+0.35— ni entre tamaños de corpus. Está dicho en el código, junto al número.
+
+### El mismo error, en pequeño
+
+Al cambiar el umbral, `evals/dialogo.py` empezó a fallar: *«¿me puedo hacer un tatuaje?»*
+puntuaba 0.831 contra su corpus de **un solo documento**, y por debajo del umbral contra los
+105 reales. Con un documento no hay contra qué contrastar.
+
+Se cambió el caso por uno inequívocamente ajeno y quedó escrito el porqué. Calibrar es
+trabajo de `evals/calibracion.py`, que corre contra el corpus real; lo que prueba el arnés
+de diálogo es la **lógica del turno**, no el umbral.
+
+### El falso positivo del juez, corregido
+
+Ahora se le dice al juez **qué vio la capa determinista**. No para ahorrarle trabajo —puede
+seguir escalando por su cuenta, que para eso está la capa B— sino para exigirle algo
+concreto cuando las reglas no vieron nada. Mencionar la cirugía o saludar no es un síntoma.
+
+### Las métricas, medidas
+
+| Métrica | Valor |
+|---|---|
+| **Latencia** (fin de habla → primera frase hablable) | **P50 1.640 ms** · P95 2.058 ms |
+| Turno completo | P50 3.088 ms |
+| Tokens por turno | 2.993 entrada / 104 salida |
+| **Invocaciones al modelo por turno** | 2 |
+| **Consultas al RAG por llamada** | 6 (una por turno) |
+| **Costo de API por llamada** | **$0** |
+
+Los turnos que toman la ruta segura responden en ~250 ms, porque no generan nada: abstenerse
+es además la respuesta más rápida posible.
+
+### El índice, por fin versionado
+
+Se entrega construido (105 documentos). Reconstruirlo toma más de una hora, que no cabe en
+el reloj del despliegue. Se versiona **ahora y no antes** porque hasta esta etapa sus
+entradas —modelo de embeddings— estaban abiertas: comprometerlo en la etapa 3 habría dejado
+en la historia un binario grande que había que reemplazar por otro.
+
+### El índice pesaba 52 MB, y la mitad era desperdicio
+
+GitHub avisó al empujarlo: *«File corpus_reto.db is 51.16 MB; larger than the recommended
+50 MB»*. Pasó, pero justo. Y no es solo el reloj del `git clone`: el índice **se copia
+entero a memoria al arrancar**, así que lo que pese en disco lo pesa también en RAM.
+
+Al abrirlo, los 52 MB no eran corpus. Eran dos cosas, y ninguna es conocimiento clínico.
+
+**Los vectores estaban en `float32`.** 10.955 fragmentos × 1.024 dimensiones × 4 bytes =
+45 MB de los 52. Guardarlos en media precisión los deja en 22 MB. La pregunta no es si cabe
+—cabe— sino **si mueve la decisión**, porque el umbral D3 se calibró con una separación de
+0.01 entre valores contiguos. Se midió antes de aplicarlo, sobre el corpus real y las 21
+preguntas de calibración:
+
+| | float32 | float16 |
+|---|---|---|
+| Mayor cambio en `max_dense` | — | **1,3e-05** |
+| Decisiones de evidencia distintas | — | **0 de 21** |
+| Top-5 de citas distintos | — | **0 de 21** |
+
+Cuatro órdenes de magnitud por debajo de la granularidad del umbral. `int8` pesaría la mitad
+otra vez, pero mueve `max_dense` 2e-04 y obliga a guardar una escala por vector: se descarta
+por relación, no por miedo.
+
+**El desperdicio, en cambio, no lo vio nadie hasta medirlo.** Con los vectores ya en 22 MB,
+el archivo bajó a… 45 MB. Los datos sumaban 30. Los 15 MB restantes eran páginas medio
+vacías: una fila de `chunks` mide ~2,7 KB, y con páginas de 4 KB —el defecto de SQLite— cada
+fila se desborda a una página propia de la que usa 1,7 KB. Se pagaba una página entera por
+fila.
+
+| `page_size` | archivo | leer los 10.955 fragmentos |
+|---|---|---|
+| 512 B | 31,6 MB | 157 ms |
+| **2 KB** | **32,5 MB** | **113 ms** |
+| 4 KB (defecto) | 45,1 MB | 106 ms |
+
+Se elige 2 KB: 1 MB más que la página mínima y 44 ms más rápido. El coste sobre el turno son
+7 ms contra los 4 KB —ruido frente a una latencia P50 de 1.640 ms—; bajar a 512 B ahorraría
+1 MB y costaría 50.
+
+**52 MB → 32 MB, sin tocar una sola respuesta.** 283/283 verde y la calibración da lo mismo
+que antes: 19/21, con las dos fugas administrativas conocidas.
+
+Un detalle de entrega que va con esto: el blob grande ya estaba **en la historia de Git**, y
+ahí un archivo no se sustituye, se acumula. Añadir el índice comprimido en un commit nuevo
+dejaría los dos —52 MB y 32— en el `clone` del jurado, que es exactamente lo contrario de lo
+que se busca. Por eso el índice se reescribe **en el commit que lo introdujo**, que además es
+la punta de la rama y de un solo autor.

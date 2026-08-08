@@ -34,13 +34,33 @@ class Settings(BaseSettings):
     llm_num_gpu: int | None = None
 
     # --- Conocimiento ---
-    # Modelo de embeddings. Cuál conviene es la decisión D2 y se resuelve
-    # midiendo separación entre preguntas con respuesta y sin ella.
-    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    # D2, resuelta midiendo separación entre preguntas con respuesta y sin ella
+    # (`evals/spike_embeddings.py`): AUC 1.00 frente a 0.94 del anterior, y las
+    # dos poblaciones dejan de solaparse. Es un modelo de RECUPERACIÓN, no de
+    # paráfrasis, y por eso `Embedder` distingue `query` de `passage`.
+    embedding_model: str = "intfloat/multilingual-e5-large"
     knowledge_db: str = "vera_knowledge.db"
-    # Umbral de "sin evidencia" (decisión D3, pendiente de calibrar contra el
-    # corpus real). Un valor provisional es honesto mientras se declare como tal.
-    min_evidence: float = 0.55
+    # D3, calibrada contra el CORPUS COMPLETO que se entrega —no contra una
+    # muestra— con `evals/calibracion.py --barrido`:
+    #
+    #   umbral 0.82, léxico >= 2  ->  12/12 respondidas, 0 rechazos falsos, 2 fugas
+    #   umbral 0.83, léxico >= 3  ->   9/12 respondidas, 3 rechazos falsos, 0 fugas
+    #
+    # Se elige el primero: cero rechazos falsos significa que el RAG responde
+    # todas las preguntas legítimas, y las dos fugas son administrativas —costo
+    # de la consulta, clave del wifi—, no clínicas. Además quedan cubiertas por
+    # las capas de abajo: la cita se deriva de la evidencia y las cifras se
+    # auditan contra su fuente.
+    #
+    # OJO: el número NO transfiere. Ni entre modelos de embeddings (con el
+    # anterior el valor bueno era 0.35) ni entre tamaños de corpus (calibrado
+    # sobre una muestra de 30 documentos daba 0.81, y con los 105 reales se queda
+    # corto: cuantos más fragmentos, más oportunidades de que alguno caiga cerca
+    # por azar). Cambiar cualquiera de los dos obliga a recalibrar.
+    min_evidence: float = 0.82
+    # Términos clínicos que la pregunta debe compartir con un fragmento del top
+    # para contar como evidencia léxica, cuando la semántica no alcanza.
+    min_lexico: int = 2
 
     # --- Persistencia ---
     governance_db: str = "vera_governance.db"

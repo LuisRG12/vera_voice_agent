@@ -21,6 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from server.config import settings
 from server.knowledge.service import KnowledgeService, _content_words
 
 PASS, FAIL = "  [OK]", "  [FALLA]"
@@ -83,7 +84,7 @@ def barrido(svc: KnowledgeService) -> None:
           f"| {'rechazos falsos':>16} {'afirmaciones falsas':>20}")
     print("  " + "-" * 96)
     for min_lex in (2, 3):
-        for umbral in (0.25, 0.30, 0.35, 0.40, 0.50, 0.60, 0.70, 0.75, 0.80, 0.81, 0.85):
+        for umbral in (0.80, 0.81, 0.82, 0.83, 0.84, 0.85, 0.86):
             bien_si = sum(1 for e in ok if decide(e, umbral, min_lex))
             bien_no = sum(1 for e in no if not decide(e, umbral, min_lex))
             print(f"  {umbral:>7.2f} {min_lex:>7} | {bien_si:>10}/{len(ok)} "
@@ -98,7 +99,7 @@ def informe(svc: KnowledgeService) -> int:
     for proc, pregunta, esperado in RESPONDIBLES:
         ev = evidencia(svc, pregunta, proc)
         recupero = any(esperado.lower() in d.lower() for d in ev["docs"])
-        responde = decide(ev, svc.min_evidence, 2)
+        responde = decide(ev, svc.min_evidence, settings.min_lexico)
         ok = recupero and responde
         resultados.append(ok)
         print(f"{PASS if ok else FAIL} [{proc[:12]:<12}] {pregunta[:54]}")
@@ -109,7 +110,7 @@ def informe(svc: KnowledgeService) -> int:
     print("   (responder aquí es una afirmación sin respaldo: el error caro)\n")
     for proc, pregunta in FUERA_DE_CORPUS:
         ev = evidencia(svc, pregunta, proc)
-        responde = decide(ev, svc.min_evidence, 2)
+        responde = decide(ev, svc.min_evidence, settings.min_lexico)
         resultados.append(not responde)
         print(f"{PASS if not responde else FAIL} [{proc[:12]:<12}] {pregunta[:54]}")
         if responde:
