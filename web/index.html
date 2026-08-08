@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vera — seguimiento postoperatorio</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --line2:#484f58;
+    --fg:#e6edf3; --fg2:#9198a1; --ok:#3fb950; --warn:#d29922; --alert:#f85149;
+    --accent:#58a6ff; --r:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:14px 22px;
+         border-bottom:1px solid var(--line);background:var(--panel)}
+  h1{font-size:18px;margin:0;font-weight:600}
+  .estado{font-size:13px;color:var(--fg2);margin-left:auto;display:flex;gap:14px}
+  .punto{display:inline-block;width:8px;height:8px;border-radius:50%;
+         background:var(--fg2);margin-right:6px;vertical-align:middle}
+  .punto.ok{background:var(--ok)} .punto.mal{background:var(--alert)}
+
+  nav{display:flex;gap:2px;padding:0 22px;border-bottom:1px solid var(--line);
+      background:var(--panel)}
+  nav button{background:none;border:0;border-bottom:2px solid transparent;color:var(--fg2);
+             padding:11px 16px;font:inherit;font-size:15px;cursor:pointer}
+  nav button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+  nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+  main{padding:22px;max-width:1100px}
+  section[hidden]{display:none}
+  h2{font-size:15px;margin:0 0 12px;font-weight:600}
+  p.ayuda{color:var(--fg2);font-size:14px;margin:0 0 16px;max-width:70ch}
+
+  button.accion{background:var(--accent);color:#0d1117;border:0;border-radius:var(--r);
+                padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+  button.accion:disabled{opacity:.45;cursor:not-allowed}
+  button.sec{background:transparent;color:var(--fg);border:1px solid var(--line2);
+             border-radius:var(--r);padding:8px 14px;font:inherit;cursor:pointer}
+  button.peligro{color:var(--alert);border-color:var(--alert)}
+
+  .fila{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .tarjeta{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+           padding:16px;margin-bottom:14px}
+
+  #transcripcion{min-height:240px;max-height:46vh;overflow:auto;display:flex;
+                 flex-direction:column;gap:10px;margin:16px 0}
+  .burbuja{max-width:78%;padding:9px 13px;border-radius:12px;white-space:pre-wrap}
+  .paciente{align-self:flex-end;background:#1f6feb33;border:1px solid #1f6feb66}
+  .vera{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+  .sistema{align-self:center;color:var(--fg2);font-size:13px;border:0;background:none}
+
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);
+        vertical-align:top}
+  th{color:var(--fg2);font-weight:600;font-size:13px}
+  td.num{font-variant-numeric:tabular-nums}
+
+  .etiqueta{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;
+            font-weight:600;border:1px solid}
+  .r-none,.r-low{color:var(--fg2);border-color:var(--line2)}
+  .r-moderate{color:var(--warn);border-color:var(--warn)}
+  .r-high,.r-critical{color:var(--alert);border-color:var(--alert)}
+  .cita{font-size:13px;color:var(--fg2)}
+  .vacio{color:var(--fg2);font-size:14px;padding:14px 0}
+  input[type=file]{font:inherit;color:var(--fg2)}
+  label.archivo{border:1px dashed var(--line2);border-radius:var(--r);padding:14px;
+                display:block;cursor:pointer}
+</style>
+</head>
+<body>
+<header>
+  <h1>Vera</h1>
+  <span class="estado">
+    <span><span class="punto" id="p-llm"></span><span id="t-llm">comprobando…</span></span>
+    <span><span class="punto" id="p-docs"></span><span id="t-docs">—</span></span>
+  </span>
+</header>
+
+<nav role="tablist">
+  <button role="tab" aria-selected="true" data-panel="llamada">Llamada</button>
+  <button role="tab" aria-selected="false" data-panel="conocimiento">Conocimiento</button>
+  <button role="tab" aria-selected="false" data-panel="alertas">Alertas</button>
+  <button role="tab" aria-selected="false" data-panel="registro">Registro</button>
+</nav>
+
+<main>
+  <!-- ------------------------------------------------------ LLAMADA -->
+  <section id="llamada">
+    <h2>Llamada de voz</h2>
+    <p class="ayuda">
+      Pulse <strong>Contestar</strong> y hable. El reconocimiento y la voz corren en el
+      navegador; el agente responde por frases, así que empieza a oírse antes de terminar
+      de generar. Puede interrumpirlo hablando encima.
+    </p>
+    <div class="fila">
+      <button class="accion" id="btn-llamar">Contestar llamada</button>
+      <button class="sec" id="btn-colgar" disabled>Colgar</button>
+      <button class="sec" id="btn-texto">Escribir en vez de hablar</button>
+      <span class="cita" id="estado-mic"></span>
+    </div>
+    <div id="transcripcion"></div>
+    <div class="fila" id="caja-texto" hidden>
+      <input id="entrada" style="flex:1;background:var(--panel);color:var(--fg);
+             border:1px solid var(--line2);border-radius:var(--r);padding:9px 12px;font:inherit"
+             placeholder="Escriba lo que diría el paciente…">
+      <button class="accion" id="btn-enviar">Enviar</button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------- CONOCIMIENTO -->
+  <section id="conocimiento" hidden>
+    <h2>Base de conocimiento</h2>
+    <p class="ayuda">
+      Suba un documento y el agente lo usa desde la siguiente consulta. Elimínelo y deja
+      de sustentar respuestas <strong>al instante</strong>, sin reindexar.
+      Formatos: PDF, DOCX, MD, TXT.
+    </p>
+    <div class="tarjeta">
+      <label class="archivo">
+        <input type="file" id="archivo" accept=".pdf,.docx,.md,.txt">
+      </label>
+      <div class="fila" style="margin-top:12px">
+        <button class="accion" id="btn-subir" disabled>Subir documento</button>
+        <span id="estado-subida" class="cita"></span>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Documento</th><th>Procedimiento</th><th>Ver.</th>
+                 <th>Fragmentos</th><th>Estado</th><th></th></tr></thead>
+      <tbody id="tabla-docs"></tbody>
+    </table>
+    <p class="vacio" id="sin-docs" hidden>No hay documentos cargados.</p>
+  </section>
+
+  <!-- ------------------------------------------------------ ALERTAS -->
+  <section id="alertas" hidden>
+    <h2>Alertas al equipo clínico</h2>
+    <p class="ayuda">
+      Una alerta se cierra cuando <strong>una persona acusa recibo</strong>, y queda
+      registrado quién y cuándo. No se puede acusar dos veces.
+    </p>
+    <div id="lista-alertas"></div>
+    <p class="vacio" id="sin-alertas" hidden>No hay alertas.</p>
+  </section>
+
+  <!-- ----------------------------------------------------- REGISTRO -->
+  <section id="registro" hidden>
+    <h2>Registro de llamadas</h2>
+    <p class="ayuda">
+      Cada turno con su decisión, quién la tomó y qué documento la sustenta. Es lo que
+      permite reconstruir por qué el agente dijo lo que dijo.
+    </p>
+    <div class="fila" style="margin-bottom:14px">
+      <select id="sel-llamada" style="background:var(--panel);color:var(--fg);
+              border:1px solid var(--line2);border-radius:var(--r);padding:8px;font:inherit">
+      </select>
+      <button class="sec" id="btn-recargar">Recargar</button>
+    </div>
+    <div id="detalle-llamada"></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (r, o) => fetch(r, o).then(async x => {
+  const d = await x.json().catch(() => ({}));
+  if (!x.ok) throw new Error(d.detail || x.statusText);
+  return d;
+});
+
+/* --------------------------------------------------------- pestañas */
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(o =>
+    o.setAttribute('aria-selected', o === b));
+  document.querySelectorAll('main section').forEach(s =>
+    s.hidden = s.id !== b.dataset.panel);
+  if (b.dataset.panel === 'conocimiento') cargarDocs();
+  if (b.dataset.panel === 'alertas') cargarAlertas();
+  if (b.dataset.panel === 'registro') cargarLlamadas();
+});
+
+/* ----------------------------------------------------------- estado */
+async function salud() {
+  try {
+    const h = await api('/api/health');
+    $('#p-llm').className = 'punto ' + (h.llm_ready ? 'ok' : 'mal');
+    $('#t-llm').textContent = h.llm_ready ? h.llm.model
+      : (h.llm.server ? 'falta descargar ' + h.llm.model : 'el modelo no responde');
+    $('#p-docs').className = 'punto ' + (h.docs ? 'ok' : '');
+    $('#t-docs').textContent = h.docs + ' documento' + (h.docs === 1 ? '' : 's');
+  } catch { $('#t-llm').textContent = 'servidor no disponible'; }
+}
+salud(); setInterval(salud, 15000);
+
+/* ---------------------------------------------------------- llamada */
+let ws = null, recon = null, hablando = false;
+
+function burbuja(quien, texto) {
+  const d = document.createElement('div');
+  d.className = 'burbuja ' + quien;
+  d.textContent = texto;
+  $('#transcripcion').append(d);
+  $('#transcripcion').scrollTop = 1e9;
+  return d;
+}
+
+/* La síntesis se corta al hablar el paciente: dejar que el agente termine su
+   frase mientras el paciente ya habló es justo lo que hace incómoda la llamada. */
+function decir(texto) {
+  if (!('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(texto);
+  u.lang = 'es-CO';
+  speechSynthesis.speak(u);
+}
+const callar = () => window.speechSynthesis && speechSynthesis.cancel();
+
+function conectar() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/llamada`);
+  let burbujaVera = null;
+
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'listo') {
+      burbuja('sistema', `Llamada ${m.call_id} · modelo ${m.model}`);
+    } else if (m.type === 'frase') {
+      if (!burbujaVera) burbujaVera = burbuja('vera', '');
+      burbujaVera.textContent += (burbujaVera.textContent ? ' ' : '') + m.text;
+      decir(m.text);
+    } else if (m.type === 'turno') {
+      burbujaVera = null;
+      const d = m.decision, cit = m.citations.map(c => c.doc_name).join(', ');
+      const partes = [`riesgo <span class="etiqueta r-${d.risk}">${d.risk}</span>`,
+                      `decidido por ${d.source}`];
+      if (cit) partes.push(`fuente: ${cit}`);
+      if (m.governance.alert_id) partes.push(`alerta #${m.governance.alert_id}`);
+      if (m.grounding_flag !== 'ok') partes.push(`⚠ ${m.grounding_flag}`);
+      const s = burbuja('sistema', ''); s.innerHTML = partes.join(' · ');
+    } else if (m.type === 'interrumpido') {
+      burbujaVera = null;
+    } else if (m.type === 'limite') {
+      burbuja('sistema', m.text);
+    } else if (m.type === 'error') {
+      burbuja('sistema', m.message);
+    }
+  };
+  ws.onclose = () => { $('#btn-llamar').disabled = false; $('#btn-colgar').disabled = true; };
+}
+
+function escuchar() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    $('#estado-mic').textContent =
+      'Este navegador no reconoce voz — use «Escribir en vez de hablar».';
+    $('#caja-texto').hidden = false;
+    return;
+  }
+  recon = new SR();
+  recon.lang = 'es-CO'; recon.continuous = true; recon.interimResults = false;
+  recon.onstart = () => $('#estado-mic').textContent = 'Escuchando…';
+  recon.onresult = ev => {
+    const texto = ev.results[ev.results.length - 1][0].transcript.trim();
+    if (!texto) return;
+    callar();                                   // interrumpe al agente
+    burbuja('paciente', texto);
+    ws?.send(JSON.stringify({ type: 'hablar', text: texto }));
+  };
+  recon.onerror = ev => $('#estado-mic').textContent = 'Micrófono: ' + ev.error;
+  recon.onend = () => { if (hablando) recon.start(); };  // el navegador lo corta solo
+  recon.start();
+}
+
+$('#btn-llamar').onclick = () => {
+  $('#transcripcion').innerHTML = '';
+  $('#btn-llamar').disabled = true; $('#btn-colgar').disabled = false;
+  hablando = true; conectar(); escuchar();
+};
+$('#btn-colgar').onclick = async () => {
+  hablando = false; recon?.stop(); callar();
+  ws?.send(JSON.stringify({ type: 'colgar' })); ws?.close();
+  $('#estado-mic').textContent = '';
+  const r = await api('/api/llamada/colgar', { method: 'POST' });
+  const s = burbuja('sistema', '');
+  s.innerHTML = `Llamada ${r.call_id} cerrada · riesgo máximo
+    <span class="etiqueta r-${r.resumen.riesgo_maximo}">${r.resumen.riesgo_maximo}</span>
+    · ${r.resumen.turnos} turnos`;
+};
+$('#btn-texto').onclick = () => $('#caja-texto').hidden = !$('#caja-texto').hidden;
+$('#btn-enviar').onclick = () => {
+  const t = $('#entrada').value.trim(); if (!t) return;
+  if (!ws) { conectar(); setTimeout(() => enviarTexto(t), 400); } else enviarTexto(t);
+  $('#entrada').value = '';
+};
+$('#entrada').addEventListener('keydown', e => e.key === 'Enter' && $('#btn-enviar').click());
+function enviarTexto(t) { burbuja('paciente', t); ws.send(JSON.stringify({ type: 'hablar', text: t })); }
+
+/* ----------------------------------------------------- conocimiento */
+$('#archivo').onchange = () => $('#btn-subir').disabled = !$('#archivo').files.length;
+$('#btn-subir').onclick = async () => {
+  const f = $('#archivo').files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  $('#btn-subir').disabled = true;
+  $('#estado-subida').textContent = 'procesando…';
+  try {
+    const r = await api('/api/knowledge/upload', { method: 'POST', body: fd });
+    $('#estado-subida').textContent = `«${r.nombre}» — ${r.estado}`;
+    $('#archivo').value = ''; cargarDocs(); salud();
+  } catch (e) { $('#estado-subida').textContent = 'no se pudo: ' + e.message; }
+  $('#btn-subir').disabled = false;
+};
+
+async function cargarDocs() {
+  const { documents } = await api('/api/knowledge');
+  const activos = documents.filter(d => d.status === 'active');
+  $('#sin-docs').hidden = activos.length > 0;
+  $('#tabla-docs').innerHTML = activos.map(d => `
+    <tr><td class="num">${d.id}</td><td>${d.name}</td>
+        <td class="cita">${d.procedure || 'general'}</td>
+        <td class="num">${d.version}</td><td class="num">${d.chunk_count}</td>
+        <td><span class="etiqueta r-none">procesado y disponible</span></td>
+        <td><button class="sec peligro" data-borrar="${d.id}">Eliminar</button></td></tr>`).join('');
+  document.querySelectorAll('[data-borrar]').forEach(b => b.onclick = async () => {
+    await api('/api/knowledge/' + b.dataset.borrar, { method: 'DELETE' });
+    cargarDocs(); salud();
+  });
+}
+
+/* ---------------------------------------------------------- alertas */
+async function cargarAlertas() {
+  const { alertas } = await api('/api/alertas');
+  $('#sin-alertas').hidden = alertas.length > 0;
+  $('#lista-alertas').innerHTML = alertas.map(a => `
+    <div class="tarjeta">
+      <div class="fila">
+        <span class="etiqueta r-${a.severity}">${a.severity}</span>
+        <strong>Alerta #${a.id}</strong>
+        <span class="cita">llamada ${a.call_id ?? '—'} · ${new Date(a.created_at * 1000).toLocaleString('es-CO')}</span>
+      </div>
+      <p style="margin:10px 0 6px">${a.reason}</p>
+      <p class="cita">El paciente dijo: «${a.evidence.dijo_el_paciente || ''}»</p>
+      <p class="cita">Reglas: ${(a.evidence.reglas || []).join(', ') || '—'}</p>
+      ${a.activa ? `<div class="fila" style="margin-top:10px">
+          <input id="quien-${a.id}" placeholder="Su nombre"
+                 style="background:var(--bg);color:var(--fg);border:1px solid var(--line2);
+                        border-radius:var(--r);padding:7px 10px;font:inherit">
+          <button class="accion" data-acusar="${a.id}">Acusar recibo</button></div>`
+        : `<p class="cita" style="margin-top:10px">✓ Acusada por <strong>${a.acked_by}</strong>
+             — ${a.acked_note || 'sin nota'}</p>`}
+    </div>`).join('');
+  document.querySelectorAll('[data-acusar]').forEach(b => b.onclick = async () => {
+    const who = $('#quien-' + b.dataset.acusar).value.trim() || 'sin identificar';
+    await api(`/api/alertas/${b.dataset.acusar}/acuse`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ who }) });
+    cargarAlertas();
+  });
+}
+
+/* --------------------------------------------------------- registro */
+async function cargarLlamadas() {
+  const { llamadas } = await api('/api/llamadas');
+  $('#sel-llamada').innerHTML = llamadas.map(c =>
+    `<option value="${c.id}">Llamada ${c.id} — ${c.turns} turnos${c.ended_at ? '' : ' (en curso)'}</option>`).join('');
+  if (llamadas.length) verLlamada(llamadas[0].id);
+}
+$('#sel-llamada').onchange = e => verLlamada(e.target.value);
+$('#btn-recargar').onclick = cargarLlamadas;
+
+async function verLlamada(id) {
+  const d = await api('/api/llamadas/' + id);
+  const filas = d.turns.map(t => `
+    <tr><td class="num">${t.idx}</td>
+        <td>${t.patient_text}</td><td>${t.agent_text}</td>
+        <td><span class="etiqueta r-${t.risk}">${t.risk}</span><br>
+            <span class="cita">${t.action} · ${t.source}</span></td>
+        <td class="cita">${t.citations.map(c => c.doc_name).join('<br>') || '—'}</td>
+        <td class="cita">${t.grounding_flag}</td>
+        <td class="cita num">${t.latency_ms.modelo_ms ?? '—'} ms<br>
+            ${(t.usage.input_tokens ?? 0)}+${(t.usage.output_tokens ?? 0)} tok</td></tr>`).join('');
+  $('#detalle-llamada').innerHTML = `
+    <table><thead><tr><th>#</th><th>Paciente</th><th>Vera</th><th>Decisión</th>
+      <th>Sustentado en</th><th>Grounding</th><th>Coste</th></tr></thead>
+      <tbody>${filas || '<tr><td colspan="7" class="vacio">Sin turnos.</td></tr>'}</tbody></table>
+    ${d.summary ? `<div class="tarjeta" style="margin-top:16px">
+        <h2>Resumen de cierre</h2>
+        <pre style="white-space:pre-wrap;font:13px ui-monospace,monospace;color:var(--fg2)">${
+          JSON.stringify(d.summary, null, 2)}</pre></div>` : ''}`;
+}
+</script>
+</body>
+</html>

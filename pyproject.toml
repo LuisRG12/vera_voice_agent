@@ -25,6 +25,8 @@ dependencies = [
     # Modelo de lenguaje local y, más adelante, proveedores de voz: todo por
     # HTTP/WebSocket directo. Un SDK no aporta nada sobre una API local.
     "httpx>=0.27",
+    # Subida de documentos por la consola (multipart).
+    "python-multipart>=0.0.9",
 ]
 
 [tool.uv]
@@ -38,6 +40,10 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
+# `File(...)` y `Depends(...)` en los argumentos por defecto son la forma
+# idiomática de declarar dependencias en FastAPI, no el antipatrón que la regla
+# persigue.
+"server/main.py" = ["B008"]
 # Los prompts son contenido, no código: partirlos por ancho de línea cambiaría
 # literalmente lo que el modelo lee. Se exceptúan solo los archivos que los
 # contienen, no el proyecto entero.

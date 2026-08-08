@@ -10,7 +10,7 @@ Tech Sphere Challenge 2026 · [Arquitectura](docs/arquitectura.md) · [Bitácora
 
 ## Estado
 
-Etapa 9 de 11: la llamada de voz, con frases escalonadas e interrupción.
+Etapa 10 de 11: consola de administración e interfaz de llamada.
 
 ## Requisitos
 
@@ -119,6 +119,24 @@ evaluaron y la alerta sale igual**. Escalar no depende de que haya un modelo dis
 
 El léxico (`server/agent/lexicon.py`) son frases planas, no expresiones regulares: añadir
 una forma nueva de decir un síntoma no exige tocar la lógica.
+
+## La consola
+
+Abra **http://localhost:8000** en Chrome. Una sola página con cuatro superficies:
+
+| Pestaña | Qué permite |
+|---|---|
+| **Llamada** | Contestar y hablar por micrófono; o escribir, para probar sin él |
+| **Conocimiento** | Subir, listar y eliminar documentos, con el estado visible |
+| **Alertas** | Ver la alerta con su evidencia y acusar recibo |
+| **Registro** | Cada turno con su decisión, quién la tomó, qué la sustenta y qué costó |
+
+El **Registro** es lo que convierte «el agente decidió escalar» en algo auditable sin abrir
+la base de datos: por turno se ve el riesgo, **qué capa lo decidió**, el documento que lo
+sustenta y el coste en tiempo y tokens.
+
+El diseño visual no busca premio —el reto dice explícitamente que no puntúa—; busca que
+todo lo que el sistema promete se pueda comprobar.
 
 ## La llamada de voz
 

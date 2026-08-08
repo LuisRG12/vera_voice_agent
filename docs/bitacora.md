@@ -564,3 +564,56 @@ produciría un jadeo de tres palabras en el sintetizador. Se corrigió la prueba
 `evals/voz.py`, 15/15. Y de punta a punta por WebSocket contra el modelo real: las frases
 llegan escalonadas, la pregunta con respuesta cita el protocolo, y el signo de alarma escala
 con `fuente=both` levantando su alerta.
+
+---
+
+## Etapa 10 · Consola
+
+### Contrato funcional, no pieza de diseño
+
+El reto es explícito: la estética no puntúa; las dos superficies son contratos funcionales
+mínimos. Así que el esfuerzo va a que **se pueda verificar todo lo que el sistema promete**,
+no a que se vea bonito. Una sola página, sin dependencias externas, cuatro superficies:
+
+| Pestaña | Para qué |
+|---|---|
+| **Llamada** | Contestar, hablar por micrófono, oír al agente. Y escribir, para poder probar sin micrófono |
+| **Conocimiento** | Subir, listar y eliminar documentos, con «procesado y disponible» visible |
+| **Alertas** | Ver la alerta con su evidencia y **acusar recibo** |
+| **Registro** | Cada turno con su decisión, quién la tomó, qué la sustenta y qué costó |
+
+### Lo que la consola hace visible
+
+El **Registro** es la pieza que más aporta y la que no pedía el enunciado. Muestra, por
+turno: lo que dijo el paciente, lo que respondió el agente, el riesgo con **qué capa lo
+decidió**, el documento que lo sustenta, la marca de grounding y el coste en tiempo y
+tokens.
+
+Es lo que convierte «el agente decidió escalar» en algo que alguien puede auditar sin
+abrir la base de datos.
+
+### La voz, en el navegador
+
+Reconocimiento con `SpeechRecognition` y síntesis con `speechSynthesis`, ambos en `es-CO`.
+Un detalle que importa: **al detectar habla del paciente se corta la síntesis en curso**.
+Dejar que el agente termine su frase mientras el paciente ya habló es justo lo que hace
+incómoda una llamada con una máquina.
+
+Y hay una alternativa por texto en la misma pestaña, porque no todos los navegadores
+reconocen voz y porque probar el cerebro no debería exigir micrófono.
+
+### Verificado en el navegador
+
+Conversación completa, subida por multipart, listado, acuse de recibo —queda «✓ Acusada por
+Dra. Gómez»— y el registro con sus turnos, citas y costes.
+
+### Una observación del modelo que se reporta, no se esconde
+
+En el registro se ve que el juez asignó `high` a *«me sacaron el apéndice hace dos días»* —un
+saludo—. Es un falso positivo del juez: la capa determinista no vio nada y la decisión salió
+`fuente=llm`.
+
+Va en la dirección conservadora, que es la correcta en clínica, pero **genera ruido
+operativo**: una alerta por un saludo hace que el equipo empiece a ignorarlas, y una alerta
+que se ignora no sirve. Queda anotado como material de la etapa 11: el juez necesita ver que
+la capa determinista no vio nada y ser más exigente en ese caso.

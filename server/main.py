@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from server.agent.dialogue import DialogueManager
@@ -47,6 +49,12 @@ def _abrir_llamada(app: FastAPI) -> None:
     app.state.dialogo = DialogueManager(
         app.state.knowledge, governance=app.state.gobernanza, call_id=call_id)
 
+
+# Sin `Cache-Control` el navegador aplica caché heurística y puede mostrar una
+# consola vieja sin preguntar. `no-cache` no significa «no guardes», sino
+# «guarda pero revalida siempre»: con el ETag que ya emite FastAPI, la
+# revalidación es un 304 sin cuerpo.
+SIN_CACHE = {"Cache-Control": "no-cache"}
 
 app = FastAPI(title="Vera", lifespan=lifespan)
 
@@ -85,6 +93,24 @@ async def agregar(body: DocumentoTexto) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"doc_id": doc_id, "estado": "procesado y disponible"}
+
+
+@app.post("/api/knowledge/upload")
+async def subir(file: UploadFile = File(...)) -> dict:
+    """Sube un documento desde la consola.
+
+    Mismo parser que el resto: la consola y los scripts recorren exactamente el
+    mismo código, para que no puedan divergir. El documento sube **sin
+    procedimiento** a propósito —no podemos adivinar a qué cirugía pertenece el
+    que traiga quien evalúe, y equivocarnos lo dejaría invisible—.
+    """
+    datos = await file.read()
+    try:
+        doc_id = await asyncio.to_thread(
+            app.state.knowledge.add_bytes, file.filename or "documento", datos)
+    except (ValueError, Exception) as exc:  # noqa: B014 — formato o contenido inválido
+        raise HTTPException(status_code=400, detail=str(exc)[:200]) from exc
+    return {"doc_id": doc_id, "nombre": file.filename, "estado": "procesado y disponible"}
 
 
 @app.delete("/api/knowledge/{doc_id}")
@@ -235,9 +261,12 @@ async def llamada_ws(ws: WebSocket) -> None:
     await SesionLlamada(ws, app.state).atender()
 
 
+WEB = Path(__file__).resolve().parent.parent / "web"
+
+
 @app.get("/")
-async def index() -> dict:
-    return {"servicio": "Vera", "salud": "/api/health"}
+async def index() -> FileResponse:
+    return FileResponse(WEB / "index.html", headers=SIN_CACHE)
 
 
 def run() -> None:
