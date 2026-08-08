@@ -158,6 +158,27 @@ def main() -> int:
     check("y la cita apunta al protocolo",
           t.citations and "apendicectomia" in t.citations[0]["doc_name"], str(t.citations))
 
+    print("\n== Un turno sin nada clínico no recupera ni afirma ==")
+    # De una llamada real: a «espere ya voy» el agente respondió sobre
+    # fotodocumentación de la válvula ileocecal. Correcto según el corpus y
+    # absurdo según la conversación. Recuperar para un turno social le entrega al
+    # modelo un contexto clínico que no viene a cuento, y el modelo lo usa igual.
+    for social in ("espere ya voy", "hola, buenos días", "sí, listo"):
+        dm = con_corpus(LLMDoble(cita=1))
+        dm.state.procedure = "apendicectomia"
+        t = dm.handle_turn(social)
+        check(f"«{social}» no trae evidencia que afirmar",
+              not t.citations and not t.has_evidence, str(t.citations))
+
+    # La contraparte, que es lo que hace la regla defendible: no se trata de
+    # exigir signo de pregunta. Un síntoma afirmado en seco es clínico y recupera.
+    for clinico in ("me duele mucho la herida", "tengo fiebre desde anoche"):
+        dm = con_corpus(LLMDoble(cita=1))
+        dm.state.procedure = "apendicectomia"
+        t = dm.handle_turn(clinico)
+        check(f"«{clinico}» sí recupera, aunque no pregunte", bool(t.citations),
+              str(t.citations))
+
     print("\n== Las dos rutas se comportan igual ==")
     casos = [
         ("mastectomia", "¿cuándo me quitan el vendaje?", "sin_corpus_procedimiento"),

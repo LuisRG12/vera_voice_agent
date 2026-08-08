@@ -12,7 +12,7 @@ control.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # Lo que se le dice al paciente cuando la llamada se corta por límite. Nunca se
 # le dice «se acabó el presupuesto»: se cierra con cortesía y con la promesa
@@ -27,21 +27,38 @@ MENSAJE_LIMITE = {
 
 @dataclass
 class CallBudget:
-    """Techo de turnos y duración por llamada."""
+    """Techo de turnos y duración por llamada.
+
+    **El cronómetro arranca en el primer turno, no al construirse.** La
+    diferencia parece de detalle y no lo es: la llamada se abre cuando arranca el
+    servidor, y quien evalúa levanta el servidor, revisa la consola y sube un
+    documento antes de decir la primera palabra. Con el reloj corriendo desde el
+    arranque, esa primera llamada llegaba muerta —«se nos acabó el tiempo» en el
+    turno uno—, y el límite se aplicaba a una conversación que nunca ocurrió.
+
+    Un presupuesto *por llamada* mide la llamada. Mientras nadie ha hablado, no
+    hay llamada que medir.
+    """
 
     max_turnos: int = 25
     max_segundos: float = 15 * 60
     turnos: int = 0
-    inicio: float = field(default_factory=time.monotonic)
+    inicio: float | None = None
 
     def registrar_turno(self) -> None:
+        if self.inicio is None:
+            self.inicio = time.monotonic()
         self.turnos += 1
+
+    def transcurrido(self) -> float:
+        """Segundos de conversación. Cero mientras nadie haya hablado."""
+        return 0.0 if self.inicio is None else time.monotonic() - self.inicio
 
     def excedido(self) -> str | None:
         """Qué límite se pasó, o None. El nombre sirve de clave del mensaje."""
         if self.turnos >= self.max_turnos:
             return "turnos"
-        if time.monotonic() - self.inicio >= self.max_segundos:
+        if self.transcurrido() >= self.max_segundos:
             return "duracion"
         return None
 
@@ -49,7 +66,7 @@ class CallBudget:
         return {
             "turnos": self.turnos,
             "max_turnos": self.max_turnos,
-            "segundos": round(time.monotonic() - self.inicio, 1),
+            "segundos": round(self.transcurrido(), 1),
             "max_segundos": self.max_segundos,
         }
 

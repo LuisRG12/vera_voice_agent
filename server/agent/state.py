@@ -117,6 +117,18 @@ def _dia_postop(low: str) -> int | None:
     return None
 
 
+def menciona_tema_clinico(text: str) -> bool:
+    """Si la frase toca alguno de los temas del seguimiento.
+
+    Se apoya en `_TEMAS`, el mismo diccionario con el que se llenan los slots: lo
+    que cuenta como clínico para el estado cuenta como clínico para decidir si el
+    turno necesita evidencia. Tener una sola lista evita que un síntoma añadido
+    aquí se quede fuera allá.
+    """
+    low = text.lower()
+    return any(re.search(pat, low) for pat in _TEMAS.values())
+
+
 def update_slots_from_text(state: CallState, text: str) -> None:
     """Actualiza el estado con lo que acaba de decir el paciente.
 

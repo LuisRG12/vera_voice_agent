@@ -70,14 +70,14 @@ fáciles.
 
 | Métrica | Valor |
 |---|---|
-| **Latencia** (fin de habla → primera frase hablable) | **P50 1.640 ms** · P95 2.058 ms |
-| Turno completo | P50 3.088 ms |
-| Tokens por turno | 2.993 entrada / 104 salida |
-| Tokens por llamada (6 turnos) | 15.067 entrada / 573 salida |
+| **Latencia** (fin de habla → primera frase hablable) | **P50 1.217 ms** · P95 2.134 ms |
+| Turno completo | P50 2.489 ms |
+| Tokens por turno | 2.136 entrada / 126 salida |
+| Tokens por llamada (6 turnos) | 13.061 entrada / 628 salida |
 | **Invocaciones al modelo por turno** | 2 (respuesta y juez de riesgo, en paralelo) |
-| **Consultas al RAG por llamada** | 6 (una por turno) |
+| **Consultas al RAG por llamada** | 5 en 6 turnos — el que no pregunta nada no recupera |
 | **Costo de API por llamada** | **$0** — el modelo corre local |
-| Costo equivalente si se pagara API | $0,0016 a $0,10/MTok (referencia declarada) |
+| Costo equivalente si se pagara API | $0,0014 a $0,10/MTok (referencia declarada) |
 
 La latencia se mide hasta la **primera frase hablable**, no hasta el turno completo: el
 agente habla por frases mientras el modelo sigue generando. Los turnos que toman la ruta

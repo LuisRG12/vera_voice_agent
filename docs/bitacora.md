@@ -696,11 +696,11 @@ concreto cuando las reglas no vieron nada. Mencionar la cirugía o saludar no es
 
 | Métrica | Valor |
 |---|---|
-| **Latencia** (fin de habla → primera frase hablable) | **P50 1.640 ms** · P95 2.058 ms |
-| Turno completo | P50 3.088 ms |
-| Tokens por turno | 2.993 entrada / 104 salida |
+| **Latencia** (fin de habla → primera frase hablable) | **P50 1.217 ms** · P95 2.134 ms |
+| Turno completo | P50 2.489 ms |
+| Tokens por turno | 2.136 entrada / 126 salida |
 | **Invocaciones al modelo por turno** | 2 |
-| **Consultas al RAG por llamada** | 6 (una por turno) |
+| **Consultas al RAG por llamada** | 5 en 6 turnos |
 | **Costo de API por llamada** | **$0** |
 
 Los turnos que toman la ruta segura responden en ~250 ms, porque no generan nada: abstenerse
@@ -761,3 +761,76 @@ ahí un archivo no se sustituye, se acumula. Añadir el índice comprimido en un
 dejaría los dos —52 MB y 32— en el `clone` del jurado, que es exactamente lo contrario de lo
 que se busca. Por eso el índice se reescribe **en el commit que lo introdujo**, que además es
 la punta de la rama y de un solo autor.
+
+---
+
+## Ensayo · dos defectos que solo aparecen usándolo
+
+Los 283 arneses pasaban y la calibración daba lo esperado. Los dos defectos de abajo
+salieron de **hablar con el agente por la consola**, no de correr pruebas, y los dos son de
+la clase que arruina una demostración sin romper nada técnicamente.
+
+### La llamada nacía muerta
+
+Al probar la consola, cada turno respondía lo mismo: *«Se nos acabó el tiempo de esta
+llamada. Ya le paso el reporte a su equipo clínico.»* En el turno 4 de 25, sin haber
+hablado antes.
+
+El presupuesto por llamada tiene dos techos, turnos y duración, y el de duración arrancaba
+el cronómetro **al construir el objeto**. La llamada se abre en el `lifespan`, es decir al
+levantar el servidor. Súmese cómo se usa esto de verdad: quien evalúa arranca el servidor,
+revisa la consola, sube un documento de prueba, mira las pestañas… y a los quince minutos
+la llamada ya está agotada antes de la primera palabra.
+
+No es un defecto de laboratorio: es **exactamente el escenario de la compuerta de
+despliegue**. Un límite que se gasta solo es peor que no tenerlo, por la misma razón por la
+que un límite anunciado y no aplicado lo era.
+
+El arreglo dice lo que el límite siempre quiso decir: un presupuesto *por llamada* mide la
+llamada, y mientras nadie ha hablado no hay llamada que medir. El cronómetro arranca en el
+primer turno.
+
+El arnés que había pasaba por casualidad —`max_segundos=0` da «excedido» tanto si el reloj
+corre como si marca cero—, así que se corrigió además de añadir los casos nuevos: una
+llamada abierta y en silencio no consume nada, y una envejecida a mano sí se agota.
+
+### «Espere ya voy» → fotodocumentación de la válvula ileocecal
+
+El otro se ve en el transcript y no se puede desver. El paciente escribió *«espere ya voy»*
+y el agente respondió con una recomendación sobre registros fotográficos de la colonoscopia
+y conservación de imagen de la válvula ileo-cecal y el ciego.
+
+Nada falló: el fragmento existe, la recuperación lo trajo bien y la cita lo sustenta. Lo que
+falla es de más arriba. La ruta segura solo se activaba ante **preguntas**; un turno que no
+pregunta nada igual recuperaba, y al modelo se le entregaba un contexto clínico que no venía
+a cuento. Un modelo pequeño y servicial, con contexto delante y una instrucción de responder,
+lo usa.
+
+La regla nueva es una frase: **contexto clínico solo cuando hay algo clínico que sustentar**
+—una pregunta que responder, un síntoma que atender o una regla determinista que ya disparó—.
+En los demás turnos el objetivo ya era avanzar el checklist, y para preguntar por el dolor no
+hace falta evidencia.
+
+La contraparte es lo que hace la regla defendible, y está en el arnés: no se trata de exigir
+signo de pregunta. *«Me duele mucho la herida»* no pregunta nada y **sí** recupera, porque
+menciona un tema del seguimiento. La lista de temas es la misma con la que se llenan los
+slots del estado, no una segunda lista que se pueda quedar vieja.
+
+**Efecto lateral: las métricas mejoraron.** El turno de apertura —«buenas, me sacaron el
+apéndice hace dos días»— dejó de recuperar y de arrastrar 2.000 tokens de contexto que no
+usaba:
+
+| | antes | ahora |
+|---|---|---|
+| Latencia P50 (primera frase) | 1.640 ms | **1.217 ms** |
+| Turno completo P50 | 3.088 ms | **2.489 ms** |
+| Tokens de entrada por llamada | 15.067 | **13.061** |
+| Consultas al RAG por llamada | 6 de 6 turnos | **5 de 6** |
+
+No se buscó la latencia: se buscó que el agente no hablara de más. La latencia bajó porque
+el trabajo que se quitó era trabajo que no había que hacer.
+
+### Verificado
+
+292/292 comprobaciones (nueve nuevas: cuatro del cronómetro, cinco del turno sin contenido
+clínico). `ruff` limpio. Calibración sin cambios: 19/21, mismas dos fugas administrativas.

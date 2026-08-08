@@ -32,7 +32,12 @@ from server.agent.prompts import (
 from server.agent.safety_rules import detect_red_flags, max_severity
 from server.agent.schemas import AgentTurn, RiskAssessment, grounded_response_for
 from server.agent.seguridad import assess_risk, combinar, formatear_fragmentos
-from server.agent.state import CHECKLIST, CallState, update_slots_from_text
+from server.agent.state import (
+    CHECKLIST,
+    CallState,
+    menciona_tema_clinico,
+    update_slots_from_text,
+)
 from server.agent.stream_parse import SentenceSplitter
 from server.governance.limits import CallBudget
 
@@ -49,6 +54,26 @@ _PREGUNTA = re.compile(r"\?|^\s*(?:qu[eé]|c[oó]mo|cu[aá]ndo|cu[aá]nto|d[oó]
 
 def es_pregunta(texto: str) -> bool:
     return bool(_PREGUNTA.search(texto.strip()))
+
+
+def necesita_evidencia(texto: str, flags) -> bool:
+    """Si el turno tiene algo clínico que sustentar.
+
+    «Espere ya voy», «hola, ¿cómo está?» o «sí, listo» no piden nada ni reportan
+    nada. Recuperar para ellos le entrega al modelo un contexto clínico que no
+    viene a cuento, y el modelo —servicial— lo usa igual. En una llamada real
+    salió así: a un «espere ya voy» el agente respondió sobre fotodocumentación
+    de la válvula ileocecal, que es correcto según el corpus y absurdo según la
+    conversación.
+
+    La regla es la consecuencia: contexto clínico solo cuando hay una pregunta
+    que responder, un síntoma que atender o una regla que ya disparó. En los
+    demás turnos el objetivo del turno ya es avanzar el checklist —preguntar por
+    dolor, herida, fiebre o medicación—, y para preguntar no hace falta evidencia.
+
+    De paso, esos turnos dejan de pagar la consulta al RAG y responden más rápido.
+    """
+    return bool(flags) or es_pregunta(texto) or menciona_tema_clinico(texto)
 
 
 def recortar_evidencia(cites, max_chars: int = MAX_CHARS_EVIDENCIA):
@@ -122,8 +147,20 @@ class DialogueManager:
                         else "cerrar la llamada con un resumen breve")
         return flags, objetivo
 
-    def _recuperar(self, user_text: str) -> tuple[list, dict]:
-        """Recupera evidencia acotada al procedimiento del paciente."""
+    # Lo que ve un turno que no tiene nada clínico que sustentar: ninguna cita y
+    # ninguna evidencia. La forma es la misma que devuelve el servicio, para que
+    # `_ruta_segura` y `_cerrar` no tengan que saber por dónde vino el turno.
+    _SIN_EVIDENCIA = {"has_evidence": False, "max_dense": 0.0, "lexical_overlap": 0,
+                      "citations": [], "sin_corpus_procedimiento": False}
+
+    def _recuperar(self, user_text: str, flags) -> tuple[list, dict]:
+        """Recupera evidencia acotada al procedimiento del paciente.
+
+        Un turno que no pregunta, no reporta síntoma y no dispara ninguna regla
+        no recupera nada: ver `necesita_evidencia`.
+        """
+        if not necesita_evidencia(user_text, flags):
+            return [], dict(self._SIN_EVIDENCIA)
         proc = self.state.procedure
         q = self.k.query(user_text, k=8, procedimiento=proc)
         # «No tengo documentos de su cirugía» y «no encontré ese dato» son cosas
@@ -233,7 +270,7 @@ class DialogueManager:
         flags, objetivo = self._preparar(user_text)
 
         t0 = time.perf_counter()
-        cites, q = self._recuperar(user_text)
+        cites, q = self._recuperar(user_text, flags)
         lat = {"recuperacion_ms": round((time.perf_counter() - t0) * 1000)}
 
         t1 = time.perf_counter()
@@ -282,7 +319,7 @@ class DialogueManager:
         flags, objetivo = self._preparar(user_text)
 
         t0 = time.perf_counter()
-        cites, q = self._recuperar(user_text)
+        cites, q = self._recuperar(user_text, flags)
         lat = {"recuperacion_ms": round((time.perf_counter() - t0) * 1000)}
 
         juez = asyncio.create_task(

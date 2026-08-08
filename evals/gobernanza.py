@@ -84,7 +84,22 @@ def main() -> int:
     b.registrar_turno()
     check("al alcanzarlo, se declara excedido", b.excedido() == "turnos", str(b.excedido()))
     b2 = CallBudget(max_segundos=0)
+    b2.registrar_turno()
     check("también por duración", b2.excedido() == "duracion", str(b2.excedido()))
+
+    # El cronómetro arranca en el PRIMER TURNO, no al construir el presupuesto.
+    # Antes se fijaba al construirlo, y como la llamada se abre al arrancar el
+    # servidor, esa primera llamada consumía sus 15 minutos mientras quien
+    # evaluaba revisaba la consola. Llegaba muerta: «se nos acabó el tiempo» en
+    # el turno uno, sin haber hablado nunca.
+    b3 = CallBudget(max_segundos=900)
+    check("una llamada abierta y en silencio no ha empezado a correr",
+          b3.inicio is None and b3.transcurrido() == 0.0, str(b3.snapshot()))
+    check("y por tanto no se declara excedida", b3.excedido() is None, str(b3.excedido()))
+    b3.registrar_turno()
+    check("el primer turno arranca el cronómetro", b3.inicio is not None)
+    b3.inicio -= b3.max_segundos + 1   # envejece la llamada sin dormir el arnés
+    check("desde ahí sí se agota por duración", b3.excedido() == "duracion", str(b3.excedido()))
 
     print("\n== El interruptor de parada ==")
     ks = KillSwitch()
